@@ -1,0 +1,87 @@
+# security.txt — Present Voice audit (2026-09-17, code + hardware)
+#
+# Scope: fully-offline Windows desktop app. Threat model is the local
+# machine + its media: hostile files (audio/docs/projects), failing disks,
+# dying GPUs, and installer/adversary-adjacent supply chain (models, DLLs).
+# There is no network attack surface by design (research + model downloads
+# are the only egress, both user-initiated). This file records what was
+# checked, what is mitigated in code, and what remains open.
+
+## Contact / policy
+- Report issues at https://github.com/anomalyco/opencode (mention Meta Muse Spark).
+- Offline-first: no telemetry, no crash upload. Dumps/logs stay in
+  %LOCALAPPDATA%\Present Voice (crash-*.dmp, crash.log, backend.log).
+
+## Hardware faults — mitigated
+- GPU driver kill / TDR timeout (long dispatches): documented remedy in
+  Settings (TdrDelay=10 or CPU retry); app never touches the registry
+  (app/src/views_settings.rs). Validation phase proves each backend loads
+  before queueing (pv-backend/src/queue.rs validate_models).
+- VRAM exhaustion: DXGI budget guard before every chunk; STT/VLM/LLM never
+  co-resident; VRAM-after-unload lifecycle logging proves teardown
+  (core/src/vram_guard.cpp, core/src/pipeline.cpp).
+- Disk-full mid-take: RF64 writer errors are sticky — finalize what exists,
+  halt, report; never retry against a full disk (pv-backend/src/rf64.rs,
+  pv-backend/src/record.rs). Downloads fail with "disk write failed (out of
+  space?)" instead of silent truncation (pv-backend/src/download.rs).
+- Power loss / kill mid-take: RF64+ds64 present from byte zero; boot scan
+  rebuilds sizes from EOF and announces recovery (pv-backend/src/rf64.rs
+  repair_file/scan_and_repair, app/src/store.rs repair_stale_takes).
+- Unbounded weekend recording: 2 h / ~3.8 GiB gapless part split + 24 h /
+  32 GiB hard sanity cap (pv-backend/src/record.rs).
+- Bitrot in convert cache: corrupt cache entries are deleted with pipe
+  fallback, never trusted (core/src/audio_ffmpeg.cpp load_audio_16k).
+- USB unplug / vanishing source: pre-queue existence check + per-file error
+  events retire the file to Input; retention delete only on success, never
+  videos, never anything inside the output dir (core/src/pipeline.cpp).
+
+## Software bugs & glitches — mitigated
+- FFmpeg command injection via filenames: all CreateProcessA command lines
+  go through qarg() (MS quoting rules, control-char reject); no shell, no
+  cmd.exe (core/src/audio_ffmpeg.cpp).
+- WAV header lies (u32 data_len vs file, crashed placeholders): u64 parse,
+  RF64/ds64 support, EOF clamp, 32 GiB sanity cap, chunked 64 MiB reads
+  (core/src/audio_ffmpeg.cpp); same rules in the Rust take reader
+  (pv-backend/src/rf64.rs).
+- OOM on multi-hour inputs: 16 kHz PCM spills past 32 M floats and STT
+  streams window-by-window; per-window VRAM is flat (core/src/pipeline.cpp,
+  core/src/stt_whisper.cpp). SHA-256 of multi-GB models streams in 64 KiB
+  chunks (pv-backend/src/verify.rs).
+- Model supply chain (corrupt/partial/malicious weights): pinned SHA-256 in
+  config/models.json (HF LFS OIDs); hard-fail on download mismatch (no
+  manifest entry); boot re-verify of the active pair with quarantine to
+  *.corrupted + fallback to the next complete tier (pv-backend/src/verify.rs,
+  pv-backend/src/download.rs, app/src/store.rs begin_run_with).
+- Stale-DLL struct mismatch: C ABI version handshake refuses old DLLs with
+  a message instead of UB (core/include/present_core.h, core_bridge.rs).
+- DLL teardown race: DLL is never unloaded (ManuallyDrop); every quit path
+  aborts + bounded-joins the worker before exit(0) (core_bridge.rs, app/src/main.rs).
+- Path traversal: output ops confined under out dir with extension whitelist
+  (queue.rs confine); override dirs canonicalized post-create with symlink /
+  junction resolution, UNC/network/removable blocked for capture+outputs,
+  ADS streams rejected, cloud-sync parents warn (pv-backend/src/paths.rs).
+- Panic/poison safety: FFI trampoline catches unwinds, never unwraps a
+  poisoned lock (core_bridge.rs); SEH filter writes minidump + log for native
+  faults (app/src/main.rs).
+- Research SSRF: http(s)-only, host required, no credentials, per-request
+  timeout + 512 KiB cap (pv-backend/src/research.rs).
+
+## Open / accepted risks
+1. models.json sha256 pins are EMPTY in this tree (offline env — no Hub
+   access). Until populated via scripts/dev/measure-models.ps1 + Hub-OID
+   diff, enforcement is size-only for stock installs. Populate before release.
+2. C++ is TU-compiled (/W3 clean) + harness-executed (audacity/srt/qarg)
+   with MSVC here, but the full DLL link (whisper/llama/mtmd) still needs
+   scripts/build.ps1 on a dev box before packaging.
+3. Dev-sidecar models.json beside the exe is an explicit trust override
+   (unverified-community badge); activation confirm is UI-convention, not a
+   cryptographic gate. Do not ship a sidecar in installers.
+4. Linked Ollama blobs are validated by existence + GGUF magic + manifest
+   size (boot re-checks magic; no content hash — Ollama owns the bytes).
+   Background hash-at-link is deferred work, not a release blocker.
+5. TDR kills and sudden power loss during model *download* leave .part files;
+   resume re-hashes the prefix and validates the 206 Content-Range window
+   (mismatch/overshoot restarts cleanly, at most once), so corruption cannot
+   slip through — but a hostile local actor could tamper between verify and
+   load (no file locking).
+6. Installer-time risks (NSIS/WiX, %LOCALAPPDATA% ACLs) out of scope here.

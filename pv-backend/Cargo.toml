@@ -1,0 +1,25 @@
+[package]
+name = "pv-backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Exact pins reproduce the proven Tauri-era dependency graph (see PINS.md
+# track policy before upgrading any of these).
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+libloading = "=0.8.9"
+futures-util = "=0.3.34"
+sha2 = "=0.10.9"
+tokio = { version = "=1.53.1", features = ["rt", "rt-multi-thread", "sync", "time", "macros"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls", "stream"] }
+# Document text extraction (offline, pure-Rust; runtime stays offline).
+# Exact pins reproduce the proven graph (see PINS.md track policy).
+zip = "=2.4.2"
+quick-xml = "=0.36.2"
+calamine = "=0.24.0"
+encoding_rs = "=0.8.41"
+pdf-extract = "=0.7.12"
+# Voice recording (Record page): cross-platform capture (WASAPI/CoreAudio/
+# ALSA) + streaming RF64 takes (see rf64.rs). Exact pins per PINS.md track policy.
+cpal = "=0.18.2"

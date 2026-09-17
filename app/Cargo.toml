@@ -1,0 +1,77 @@
+[package]
+name = "present-voice"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "present-voice"
+path = "src/main.rs"
+
+[dependencies]
+# UI pins (see PINS.md): depend on the gpui-kit facade ONLY — it re-exports
+# the matching gpui-pre/gpui-component set, so no version can drift apart.
+# Code says `use gpui_kit::...` throughout; direct gpui deps are banned.
+gpui-kit = "=0.6.1"
+pv-backend = { path = "../pv-backend" }
+# Native file dialogs (replaces the Tauri dialog plugin).
+rfd = "0.15"
+# Backend→UI event bridge (blocking backend rx, async UI task).
+async-channel = "2"
+
+[build-dependencies]
+# Windows exe icon (app.rc → assets/voice.ico).
+embed-resource = "=3.0.11"
+
+# ---- cargo-packager config (M5): NSIS per-machine exe + per-user MSI ----
+# Paths are relative to this file. NSIS/Wix place `resources` beside the exe,
+# which matches the exe-dir-first resolution in pv-backend + audio_ffmpeg.
+# Program only: no models/, no scripts/ — models install separately via the
+# in-app downloader, then the app runs fully offline.
+[package.metadata.packager]
+product-name = "Present Voice"
+version = "0.1.0"
+identifier = "com.presentvoice.app"
+description = "Batch transcribe + summarize lectures. Works fully offline after models."
+category = "Productivity"
+formats = ["nsis", "wix"]
+out-dir = "../dist"
+binaries-dir = "../target/release"
+icons = ["../assets/voice.ico", "../assets/voice.png"]
+
+[[package.metadata.packager.binaries]]
+path = "present-voice"
+main = true
+
+[[package.metadata.packager.resources]]
+src = "../ffmpeg-dlls/*"
+target = "."
+
+[[package.metadata.packager.resources]]
+src = "../config/models.json"
+target = "models.json"
+
+[[package.metadata.packager.resources]]
+src = "../config/guides/recap.md"
+target = "guides/recap.md"
+
+[[package.metadata.packager.resources]]
+src = "../config/guides/standard.md"
+target = "guides/standard.md"
+
+[[package.metadata.packager.resources]]
+src = "../config/guides/detailed.md"
+target = "guides/detailed.md"
+
+[package.metadata.packager.nsis]
+installMode = "perMachine"
+installer-icon = "../assets/voice.ico"
+# Per-machine single folder: grant standard users write access up front
+# (inheritance covers files copied later), so models/output work for everyone.
+# Uninstaller offers to remove $LOCALAPPDATA data via appdata-paths.
+preinstall-section = """
+    Section PreInstall
+      CreateDirectory $INSTDIR
+      ExecWait 'icacls "$INSTDIR" /grant *S-1-5-32-545:(OI)(CI)M /T'
+    SectionEnd
+"""
+appdata-paths = ["$LOCALAPPDATA/Present Voice"]

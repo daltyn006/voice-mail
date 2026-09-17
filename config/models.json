@@ -1,0 +1,145 @@
+{
+    "$comment": "Single source of truth: download manifest (HuggingFace direct), Models-tab order (bytes ascending), tier pairs, offline bundle recipe. Sizes verified against HF API tree endpoints 2026-09-10. sha256 pins are the HF LFS OIDs (== file SHA-256); populate via scripts/dev/measure-models.ps1 while online, then diff against the Hub Files page before commit. Empty pin = legacy size-only check (embedded catalog) or unverified-community flag (dev-sidecar override). The downloader hard-fails mismatches; boot re-verifies the active pair with fallback. Vision pairs pin text_sha256 + mmproj_sha256 per file.",
+  "defaults": {
+    "stt_model": "large-v3-turbo-Q5_0",
+    "llm_model": "gemma-2-9b-it-Q4_K_M",
+    "chunk_words": 1200,
+    "audio_window_sec": 30,
+    "vram_budget_pct": 80
+  },
+  "tiers": {
+    "lite": {
+      "stt": "small.en-Q5_1",
+      "llm": "qwen2.5-7b-it-Q4_K_M",
+      "vlm": "qwen2-vl-2b-Q4_K_M",
+      "min_vram_gb": 0,
+      "min_ram_gb": 0,
+      "note": "VRAM <6GB, or RAM <12GB, or disk-tight fallback."
+    },
+    "standard": {
+      "stt": "medium.en-Q5_0",
+      "llm": "llama-3.1-8b-it-Q4_K_M",
+      "vlm": "qwen2-vl-7b-Q4_K_M",
+      "min_vram_gb": 6,
+      "min_ram_gb": 12,
+      "note": "VRAM 6-12GB."
+    },
+    "full": {
+      "stt": "large-v3-turbo-Q5_0",
+      "llm": "gemma-2-9b-it-Q4_K_M",
+      "vlm": "qwen2-vl-7b-Q8_0",
+      "min_vram_gb": 12,
+      "min_ram_gb": 12,
+      "note": "VRAM >12GB. Best accuracy."
+    }
+  },
+  "disk_headroom_pct": 20,
+  "stt_models": [
+    {
+      "id": "small.en-Q5_1",
+      "file": "ggml-small.en-q5_1.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin",
+      "sha256": "",
+      "bytes": 190098681,
+      "tier": "lite",
+      "note": "Lite tier. Fastest, English-only, lowest VRAM."
+    },
+    {
+      "id": "small.en-tdrz",
+      "file": "ggml-small.en-tdrz.bin",
+      "url": "https://huggingface.co/akashmjn/tinydiarize-whisper.cpp/resolve/main/ggml-small.en-tdrz.bin",
+      "sha256": "",
+      "bytes": 487614184,
+      "tier": "lite",
+      "note": "Lite tier with speaker-turn detection (tinydiarize, English-only). Transcripts gain Speaker 1/2 labels."
+    },
+    {
+      "id": "medium.en-Q5_0",
+      "file": "ggml-medium.en-q5_0.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q5_0.bin",
+      "sha256": "",
+      "bytes": 539225533,
+      "tier": "standard",
+      "note": "Standard tier. Faster, English-only, lower VRAM."
+    },
+    {
+      "id": "large-v3-turbo-Q5_0",
+      "file": "ggml-large-v3-turbo-q5_0.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+      "sha256": "",
+      "bytes": 574041195,
+      "tier": "full",
+      "note": "Full tier + default. Best accuracy, Vulkan GPU on NVIDIA+AMD."
+    }
+  ],
+  "llm_models": [
+    {
+      "id": "qwen2.5-7b-it-Q4_K_M",
+      "file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+      "url": "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+      "sha256": "",
+      "bytes": 4683074240,
+      "tier": "lite",
+      "note": "Lite tier summarizer."
+    },
+    {
+      "id": "llama-3.1-8b-it-Q4_K_M",
+      "file": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+      "url": "https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+      "sha256": "",
+      "bytes": 4920739232,
+      "tier": "standard",
+      "note": "Standard tier alternative."
+    },
+    {
+      "id": "gemma-2-9b-it-Q4_K_M",
+      "file": "gemma-2-9b-it-Q4_K_M.gguf",
+      "url": "https://huggingface.co/bartowski/gemma-2-9b-it-GGUF/resolve/main/gemma-2-9b-it-Q4_K_M.gguf",
+      "sha256": "",
+      "bytes": 5761057728,
+      "tier": "full",
+      "note": "Full tier + default summarizer."
+    }
+  ],
+  "vision_models": [
+    {
+      "id": "qwen2-vl-2b-Q4_K_M",
+      "text_file": "Qwen2-VL-2B.Q4_K_M.gguf",
+      "text_url": "https://huggingface.co/mradermacher/Qwen2-VL-2B-GGUF/resolve/main/Qwen2-VL-2B.Q4_K_M.gguf",
+      "text_bytes": 986046464,
+      "mmproj_file": "Qwen2-VL-2B.mmproj-fp16.gguf",
+      "mmproj_url": "https://huggingface.co/mradermacher/Qwen2-VL-2B-GGUF/resolve/main/Qwen2-VL-2B.mmproj-fp16.gguf",
+      "mmproj_bytes": 1331656192,
+      "sha256": "",
+      "tier": "lite",
+      "attention_min": 0,
+      "note": "Lite tier vision: same Qwen2-VL family as Medium, ~2.3GB total. Simple but timestamped captions."
+    },
+    {
+      "id": "qwen2-vl-7b-Q4_K_M",
+      "text_file": "Qwen2-VL-7B.Q4_K_M.gguf",
+      "text_url": "https://huggingface.co/mradermacher/Qwen2-VL-7B-GGUF/resolve/main/Qwen2-VL-7B.Q4_K_M.gguf",
+      "text_bytes": 4683072544,
+      "mmproj_file": "Qwen2-VL-7B.mmproj-fp16.gguf",
+      "mmproj_url": "https://huggingface.co/mradermacher/Qwen2-VL-7B-GGUF/resolve/main/Qwen2-VL-7B.mmproj-fp16.gguf",
+      "mmproj_bytes": 1352635904,
+      "sha256": "",
+      "tier": "standard",
+      "attention_min": 34,
+      "note": "Standard tier vision: best mid-tier film reading, ~6GB resident."
+    },
+    {
+      "id": "qwen2-vl-7b-Q8_0",
+      "text_file": "Qwen2-VL-7B.Q8_0.gguf",
+      "text_url": "https://huggingface.co/mradermacher/Qwen2-VL-7B-GGUF/resolve/main/Qwen2-VL-7B.Q8_0.gguf",
+      "text_bytes": 8098524192,
+      "mmproj_file": "Qwen2-VL-7B.mmproj-fp16.gguf",
+      "mmproj_url": "https://huggingface.co/mradermacher/Qwen2-VL-7B-GGUF/resolve/main/Qwen2-VL-7B.mmproj-fp16.gguf",
+      "mmproj_bytes": 1352635904,
+      "sha256": "",
+      "tier": "full",
+      "attention_min": 67,
+      "note": "Full tier vision: same proven backend at near-best quality, ~9.5GB resident."
+    }
+  ]
+}
