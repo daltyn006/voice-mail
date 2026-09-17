@@ -32,6 +32,8 @@ output/
 !RELEASE.md
 !SECURITY.md
 !security.txt
+!docs/
+!docs/**
 *.json
 !**/package.json
 !**/models.json

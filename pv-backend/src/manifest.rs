@@ -20,6 +20,11 @@ pub struct ManifestFile {
     /// Models page; empty in manifests written before roles existed.
     #[serde(default)]
     pub role: String,
+    /// True once the bytes behind this record proved their hash: downloads
+    /// (hashed before finalize) or links (background link-verify worker).
+    /// False = magic+size only so far. Added later; old manifests read false.
+    #[serde(default)]
+    pub verified: bool,
 }
 
 #[derive(Deserialize, Serialize, Default, Clone, Debug)]
@@ -65,6 +70,7 @@ pub fn record_complete(man: &mut Manifest, id: &str, role: &str, bytes: u64, sha
             sha256,
             path: None,
             role: String::new(),
+            verified: true,
         },
     );
     if role == "stt" && man.active_stt.is_empty() {
@@ -95,6 +101,9 @@ pub fn record_link(
             sha256,
             path: Some(path),
             role: role.to_string(),
+            // Links start unverified (magic+size at link time); the
+            // background link-verify worker flips this after hashing.
+            verified: false,
         },
     );
     match role {
@@ -102,6 +111,19 @@ pub fn record_link(
         "llm" if man.active_llm.is_empty() => man.active_llm = id.to_string(),
         "vlm" if man.active_vlm.is_empty() => man.active_vlm = id.to_string(),
         _ => {}
+    }
+}
+
+/// Mark a linked record hash-verified (`true`) or back to unverified.
+/// Returns false when the id is unknown or not a link. Managed (downloaded)
+/// records are always verified and never touched.
+pub fn set_link_verified(man: &mut Manifest, id: &str, verified: bool) -> bool {
+    match man.files.get_mut(id) {
+        Some(rec) if rec.path.is_some() => {
+            rec.verified = verified;
+            true
+        }
+        _ => false,
     }
 }
 

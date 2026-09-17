@@ -81,6 +81,15 @@ pub enum Event {
     UpdateCheck {
         message: String,
     },
+    /// Background Ollama link-hash check finished (worker thread, spawned at
+    /// link time — multi-GB blobs must never hash on the UI thread). `ok`
+    /// means the blob hashes to its manifest digest; a mismatch drops the
+    /// link (worker removes the manifest record) and `message` explains why.
+    LinkVerified {
+        id: String,
+        ok: bool,
+        message: String,
+    },
 }
 
 #[cfg(test)]

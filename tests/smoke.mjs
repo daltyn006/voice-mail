@@ -394,6 +394,8 @@ ok(src('scripts/build.ps1').includes('Dev staging'), 'build stages backend besid
 
 // --- 8. Conservative supply-chain gates (NIST SSDF PS/RV lite) ---
 ok(src('.github/workflows/release.yml').includes('cargo audit'), 'CI runs cargo audit (RUSTSEC)');
+ok(existsSync('deny.toml') && src('deny.toml').includes('[advisories]'), 'deny.toml states the dependency policy');
+ok(src('.github/workflows/release.yml').includes('cargo deny check'), 'CI enforces the deny policy');
 ok(src('.github/workflows/release.yml').includes('Pin gate'), 'CI pin gate fails tags closed on empty sha256');
 ok(src('.github/workflows/release.yml').includes('SHA256SUMS'), 'CI publishes SHA256SUMS');
 ok(src('.github/workflows/release.yml').includes('cyclonedx') || src('.github/workflows/release.yml').includes('SBOM'), 'CI generates SBOM');
@@ -403,6 +405,10 @@ ok(src('scripts/build.ps1').includes('PV_UPDATE_FEED') && src('scripts/build.ps1
 ok(src('pv-backend/src/models.rs').includes('expected.is_empty()'), 'Models page badges unpinned entries per-entry (not just sidecar)');
 ok(src('pv-backend/src/verify.rs').includes('gguf_magic_ok'), 'boot verify checks GGUF magic on linked blobs');
 ok(src('pv-backend/src/verify.rs').includes('size-only check'), 'boot warns when active models are size-only');
+ok(src('pv-backend/src/ollama.rs').includes('verify_link_blocking'), 'linked blobs hash-verify on a worker');
+ok(src('pv-backend/src/manifest.rs').includes('set_link_verified'), 'link verification persists a verified flag');
+ok(src('app/src/store.rs').includes('LinkVerified'), 'link-hash results fold into the store');
+ok(existsSync('docs/THREAT-MODEL.md') && src('docs/THREAT-MODEL.md').includes('STRIDE'), 'STRIDE threat model present');
 ok(src('pv-backend/src/download.rs').includes('verified_complete'), 'complete downloads hash-verify before the network is skipped');
 ok(src('pv-backend/src/download.rs').includes('range_start_mismatch'), '206 resumes validate the server window before appending');
 ok(src('pv-backend/src/download.rs').includes('downloaded > total'), 'overshot prefixes restart clean instead of failing the retry');

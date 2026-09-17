@@ -167,6 +167,58 @@ pub fn scan() -> Vec<OllamaModel> {
     scan_root(&store_root())
 }
 
+/// Hash one linked blob against its recorded manifest digest (blocking: call
+/// from a worker thread, never the UI thread). On a match the manifest
+/// record is flagged verified; on any failure the link is dropped (manifest
+/// record removed, active slots cleared) so a tampered or rotated blob can
+/// never stay linked. Always emits exactly one `Event::LinkVerified`.
+pub fn verify_link_blocking(id: &str, tx: std::sync::mpsc::Sender<crate::progress::Event>) {
+    use crate::progress::Event;
+    let done = |ok: bool, message: String| {
+        let _ = tx.send(Event::LinkVerified {
+            id: id.to_string(),
+            ok,
+            message,
+        });
+    };
+    let dir = crate::dirs::models_dir();
+    let mut man = crate::manifest::read(&dir);
+    let (path, expected) = match man.files.get(id) {
+        Some(rec) => match (&rec.path, &rec.sha256) {
+            (Some(p), e) => (p.clone(), e.clone()),
+            _ => {
+                return done(false, format!("{id} is not a linked model"));
+            }
+        },
+        None => return done(false, format!("{id} is not linked anymore")),
+    };
+    if expected.is_empty() {
+        // Pre-hash-era manifest record: nothing to compare against.
+        // Keep the link (magic+size gates still hold) but say so honestly.
+        return done(true, format!("{id}: no digest recorded — magic+size only"));
+    }
+    match crate::verify::sha256_file(std::path::Path::new(&path)) {
+        Ok(hex) if hex.eq_ignore_ascii_case(&expected) => {
+            crate::manifest::set_link_verified(&mut man, id, true);
+            let _ = crate::manifest::write(&dir, &man);
+            done(true, format!("{id}: blob hash verified"))
+        }
+        Ok(_) => {
+            crate::manifest::remove(&mut man, id);
+            let _ = crate::manifest::write(&dir, &man);
+            done(
+                false,
+                format!("{id}: blob hash mismatch — link dropped, re-link to retry"),
+            )
+        }
+        Err(e) => {
+            crate::manifest::remove(&mut man, id);
+            let _ = crate::manifest::write(&dir, &man);
+            done(false, format!("{id}: cannot read blob ({e}) — link dropped"))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,6 +262,70 @@ mod tests {
         assert!(gguf_magic_ok(&good));
         assert!(!gguf_magic_ok(&bad));
         assert!(!gguf_magic_ok(&dir.join("missing.bin")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn verify_link_hash_match_flags_mismatch_drops() {
+        use crate::progress::Event;
+        use sha2::Digest;
+        let _guard = crate::dirs::TEST_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("pv-linkvrf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::dirs::set_models_dir_override(dir.clone());
+
+        let blob = dir.join("blob.gguf");
+        let content = b"GGUF-fake-weights!";
+        std::fs::write(&blob, content).unwrap();
+        let hex = format!("{:x}", sha2::Sha256::digest(content));
+        let mut man = crate::manifest::read(&dir);
+        crate::manifest::record_link(
+            &mut man,
+            "ollama:m",
+            content.len() as u64,
+            hex,
+            blob.to_string_lossy().into_owned(),
+            "llm",
+        );
+        crate::manifest::write(&dir, &man).unwrap();
+        assert!(!crate::manifest::read(&dir).files["ollama:m"].verified);
+
+        // Match → verified flag set, ok event.
+        let (tx, rx) = std::sync::mpsc::channel();
+        verify_link_blocking("ollama:m", tx);
+        match rx.recv().unwrap() {
+            Event::LinkVerified { id, ok, .. } => {
+                assert_eq!(id, "ollama:m");
+                assert!(ok);
+            }
+            _ => panic!("expected LinkVerified"),
+        }
+        assert!(crate::manifest::read(&dir).files["ollama:m"].verified);
+
+        // Tampered blob → link dropped, fail event.
+        std::fs::write(&blob, b"GGUF-TAMPERED-!!!!").unwrap();
+        let (tx2, rx2) = std::sync::mpsc::channel();
+        verify_link_blocking("ollama:m", tx2);
+        match rx2.recv().unwrap() {
+            Event::LinkVerified { id, ok, message } => {
+                assert_eq!(id, "ollama:m");
+                assert!(!ok);
+                assert!(message.contains("mismatch"));
+            }
+            _ => panic!("expected LinkVerified"),
+        }
+        assert!(crate::manifest::read(&dir).files.get("ollama:m").is_none());
+
+        // Unknown id → fail event, no panic.
+        let (tx3, rx3) = std::sync::mpsc::channel();
+        verify_link_blocking("ollama:ghost", tx3);
+        match rx3.recv().unwrap() {
+            Event::LinkVerified { ok, .. } => assert!(!ok),
+            _ => panic!("expected LinkVerified"),
+        }
+
+        crate::dirs::clear_models_dir_override();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -1564,6 +1564,22 @@ impl Store {
             Event::UpdateCheck { message } => {
                 self.status = message;
             }
+            Event::LinkVerified { id, ok, message } => {
+                // The worker already updated the manifest (verified flag or
+                // dropped record with cleared slots) — mirror it locally.
+                self.refresh_models();
+                if ok {
+                    // A re-link race may have replaced this id meanwhile;
+                    // only announce when the verified record is still ours.
+                    let dir = pv_backend::dirs::models_dir();
+                    let man = pv_backend::manifest::read(&dir);
+                    if man.files.contains_key(&id) {
+                        self.status = message;
+                    }
+                } else {
+                    self.push_error("Models", format!("Ollama link failed: {message}"), id);
+                }
+            }
         }
     }
 
@@ -3188,10 +3204,17 @@ impl Store {
 
     /// Link one scanned Ollama model by display name under the given role
     /// ("stt", "llm", or "vlm"): validate the blob, record its absolute path
-    /// plus role, refresh. The file stays where Ollama put it. A linked VLM
+    /// plus role, refresh, and hash the blob on a worker (multi-GB — never
+    /// the UI thread). Returns the event receiver — the caller pumps it via
+    /// [`spawn_pump`]; `Event::LinkVerified` flips the badge or drops a
+    /// tampered link. The file stays where Ollama put it. A linked VLM
     /// serves as the text half; its projector still comes from a downloaded
     /// catalog mmproj (same family).
-    pub fn link_ollama(&mut self, name: &str, role: &str) -> Result<(), String> {
+    pub fn link_ollama(
+        &mut self,
+        name: &str,
+        role: &str,
+    ) -> Result<Receiver<Event>, String> {
         if role != "stt" && role != "llm" && role != "vlm" {
             return Err(format!("bad link role: {role}"));
         }
@@ -3231,9 +3254,28 @@ impl Store {
         } else {
             "summarizer"
         };
+        // The link is usable now (magic+size gates passed); the hash proof
+        // lands via LinkVerified. Spawn failures are terminal for the link:
+        // without a worker there is no verification, so refuse, loudly.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let id_clone = id.clone();
+        if std::thread::Builder::new()
+            .name("pv-link-verify".to_string())
+            .stack_size(8 << 20)
+            .spawn(move || {
+                pv_backend::ollama::verify_link_blocking(&id_clone, tx);
+            })
+            .is_err()
+        {
+            let mut man = pv_backend::manifest::read(&dir);
+            pv_backend::manifest::remove(&mut man, &id);
+            let _ = pv_backend::manifest::write(&dir, &man);
+            self.refresh_models();
+            return Err("could not start link verification — link dropped".to_string());
+        }
         self.status =
-            format!("Linked {name} as {slot} — loads straight from Ollama's store, no copy.");
-        Ok(())
+            format!("Linked {name} as {slot} — verifying blob hash in background…");
+        Ok(rx)
     }
 
     /// Drop a link record. The Ollama file itself is never touched.

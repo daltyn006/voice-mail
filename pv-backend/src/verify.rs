@@ -141,6 +141,7 @@ pub fn verify_one(id: &str) -> VerifyOne {
                     sha256: hex,
                     path: None,
                     role: String::new(),
+                    verified: true,
                 },
             );
             let _ = crate::manifest::write(&dir, &man);
@@ -290,6 +291,7 @@ mod tests {
                 sha256: "x".into(),
                 path: None,
                 role: String::new(),
+                verified: false,
             },
         );
         crate::manifest::write(&dir, &man).unwrap();

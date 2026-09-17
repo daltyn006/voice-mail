@@ -133,13 +133,21 @@ pub fn status() -> Result<ModelsSnapshot, String> {
         } else {
             "llm"
         };
+        // Hash state of the linked blob: verified at link time by the
+        // background worker, unverified while it hashes (or for pre-worker
+        // manifest records, which carry no proof either way).
+        let link_note = if rec.verified {
+            format!("Linked in place — no copy. Loaded straight from {path} [Hash verified]")
+        } else {
+            format!("Linked in place — no copy. Loaded straight from {path} [Hash unverified — magic+size only]")
+        };
         models.push(ModelStatus {
             id: id.clone(),
             role: role.to_string(),
             file: shown,
             bytes: rec.bytes,
             tier: "linked".to_string(),
-            note: format!("Linked in place — no copy. Loaded straight from {path}"),
+            note: link_note,
             present: size > 0,
             size,
             complete,

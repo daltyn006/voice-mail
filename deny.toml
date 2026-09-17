@@ -1,0 +1,24 @@
+# cargo-deny policy (SSDF PW.3 — use only known-vulnerable-free dependencies).
+#
+# Run locally: `cargo deny check advisories bans`
+# CI (`supply-chain` job) runs the same on every push. The advisories check
+# needs network for the RUSTSEC DB; the bans check is local to Cargo.lock.
+#
+# Deliberately minimal: license inventory is deferred work (no [licenses]
+# section until one is audited — an allow-list written blind would either
+# fail the build on legit deps or rubber-stamp them). See SECURITY.md.
+
+[graph]
+targets = []
+
+[advisories]
+db-path = "~/.cargo/advisory-dbs"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+deny = []
+skip = []

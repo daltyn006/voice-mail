@@ -679,13 +679,18 @@ fn scan_section(
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let name = name_l.clone();
+                            let pump = store_l.clone();
                             store_l.update(cx, |s, cx| {
-                                if let Err(e) = s.link_ollama(&name, "llm") {
-                                    s.status = format!("Link failed: {e}");
-                                } else {
-                                    let cur = s.active_stt.clone();
-                                    let linked = format!("ollama:{name}");
-                                    s.set_active_pair(&cur, &linked);
+                                match s.link_ollama(&name, "llm") {
+                                    Err(e) => {
+                                        s.status = format!("Link failed: {e}");
+                                    }
+                                    Ok(rx) => {
+                                        crate::store::spawn_pump(pump.clone(), rx, cx);
+                                        let cur = s.active_stt.clone();
+                                        let linked = format!("ollama:{name}");
+                                        s.set_active_pair(&cur, &linked);
+                                    }
                                 }
                                 cx.notify();
                             });
@@ -697,13 +702,18 @@ fn scan_section(
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let name = name_s.clone();
+                            let pump = store_s.clone();
                             store_s.update(cx, |s, cx| {
-                                if let Err(e) = s.link_ollama(&name, "stt") {
-                                    s.status = format!("Link failed: {e}");
-                                } else {
-                                    let cur = s.active_llm.clone();
-                                    let linked = format!("ollama:{name}");
-                                    s.set_active_pair(&linked, &cur);
+                                match s.link_ollama(&name, "stt") {
+                                    Err(e) => {
+                                        s.status = format!("Link failed: {e}");
+                                    }
+                                    Ok(rx) => {
+                                        crate::store::spawn_pump(pump.clone(), rx, cx);
+                                        let cur = s.active_llm.clone();
+                                        let linked = format!("ollama:{name}");
+                                        s.set_active_pair(&linked, &cur);
+                                    }
                                 }
                                 cx.notify();
                             });
@@ -715,12 +725,17 @@ fn scan_section(
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let name = name_v.clone();
+                            let pump = store_v.clone();
                             store_v.update(cx, |s, cx| {
-                                if let Err(e) = s.link_ollama(&name, "vlm") {
-                                    s.status = format!("Link failed: {e}");
-                                } else {
-                                    let linked = format!("ollama:{name}");
-                                    s.set_active_vlm(&linked);
+                                match s.link_ollama(&name, "vlm") {
+                                    Err(e) => {
+                                        s.status = format!("Link failed: {e}");
+                                    }
+                                    Ok(rx) => {
+                                        crate::store::spawn_pump(pump.clone(), rx, cx);
+                                        let linked = format!("ollama:{name}");
+                                        s.set_active_vlm(&linked);
+                                    }
                                 }
                                 cx.notify();
                             });

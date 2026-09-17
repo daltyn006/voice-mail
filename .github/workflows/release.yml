@@ -20,6 +20,12 @@ jobs:
           cargo audit
         shell: bash
 
+      - name: Dependency policy (deny.toml — advisories + bans)
+        run: |
+          cargo install cargo-deny --locked
+          cargo deny check advisories bans
+        shell: bash
+
   build-windows:
     runs-on: windows-latest
     steps:
