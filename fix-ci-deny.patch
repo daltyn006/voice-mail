@@ -1,0 +1,41 @@
+diff --git a/app/Cargo.toml b/app/Cargo.toml
+index 3a7e862..9842b30 100644
+--- a/app/Cargo.toml
++++ b/app/Cargo.toml
+@@ -1,4 +1,5 @@
+ [package]
++publish = false
+ name = "voice-mail"
+ version = "0.1.0"
+ edition = "2021"
+diff --git a/deny.toml b/deny.toml
+index b85ddd5..7735df3 100644
+--- a/deny.toml
++++ b/deny.toml
+@@ -27,7 +27,15 @@ targets = []
+ db-path = "~/.cargo/advisory-dbs"
+ db-urls = ["https://github.com/rustsec/advisory-db"]
+ yanked = "warn"
+-ignore = []
++ignore = [
++    # Unmaintained-crate notices (not vulnerabilities), all transitive via the
++    # pinned UI stack / document extractors; re-check at each quarterly PINS.md review.
++    { id = "RUSTSEC-2024-0384", reason = "instant: unmaintained; via gpui-base/gpui-component/notify (UI stack)" },
++    { id = "RUSTSEC-2024-0436", reason = "paste: unmaintained proc-macro; via gpui-component/metal/pulp (UI stack)" },
++    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile: unmaintained; via gpui-pre-reqwest (UI stack)" },
++    { id = "RUSTSEC-2026-0206", reason = "rustybuzz: unmaintained; via usvg (SVG rendering)" },
++    { id = "RUSTSEC-2026-0192", reason = "ttf-parser: unmaintained; via fontdb/gpui-pre/lopdf/rustybuzz" },
++]
+ 
+ [bans]
+ multiple-versions = "warn"
+diff --git a/pv-backend/Cargo.toml b/pv-backend/Cargo.toml
+index 0698286..e4bf637 100644
+--- a/pv-backend/Cargo.toml
++++ b/pv-backend/Cargo.toml
+@@ -1,4 +1,5 @@
+ [package]
++publish = false
+ name = "pv-backend"
+ version = "0.1.0"
+ edition = "2021"

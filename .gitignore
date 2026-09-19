@@ -7,6 +7,7 @@ dist/
 .idea/
 Thumbs.db
 .opencode/
+*.patch
 
 # Build outputs
 *.dll

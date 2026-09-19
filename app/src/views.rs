@@ -122,21 +122,17 @@ impl RootView {
     /// horizontal overflow keep narrow windows to a single column instead
     /// of clipping content.
     fn body_slot(body: gpui_kit::AnyElement) -> Div {
-        div()
-            .flex_1()
-            .flex_auto()
-            .min_w(px(0.0))
-            .child(
-                div()
-                    .max_w(px(1200.0))
-                    .mx_auto()
-                    .w_full()
-                    .min_w(px(0.0))
-                    .p_4()
-                    .h_full()
-                    .overflow_x_hidden()
-                    .child(body),
-            )
+        div().flex_1().flex_auto().min_w(px(0.0)).child(
+            div()
+                .max_w(px(1200.0))
+                .mx_auto()
+                .w_full()
+                .min_w(px(0.0))
+                .p_4()
+                .h_full()
+                .overflow_x_hidden()
+                .child(body),
+        )
     }
 
     fn goto(&mut self, page: Page, cx: &mut Context<Self>) {
@@ -178,8 +174,7 @@ impl RootView {
     }
 
     fn on_toggle_theme(&mut self, _: &ToggleTheme, _: &mut Window, cx: &mut Context<Self>) {
-        let (theme_mode, high_contrast) =
-            self.store.update(cx, |st, _| st.cycle_theme());
+        let (theme_mode, high_contrast) = self.store.update(cx, |st, _| st.cycle_theme());
         crate::theme::apply_theme(&theme_mode, high_contrast, cx);
         self.store.update(cx, |_, cx| cx.notify());
     }

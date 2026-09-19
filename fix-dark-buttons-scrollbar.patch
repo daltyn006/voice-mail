@@ -1,0 +1,68 @@
+diff --git a/app/src/theme.rs b/app/src/theme.rs
+index e5d97e9..b72aae4 100644
+--- a/app/src/theme.rs
++++ b/app/src/theme.rs
+@@ -7,7 +7,7 @@
+ //! Neutrals are true grays (no blue tint); functional blues get a slight desaturation
+ //! pass so the whole UI reads calmer. All tokens are accessible via helpers below.
+ 
+-use gpui_kit::component::theme::{Colorize as _, Theme, ThemeMode};
++use gpui_kit::component::theme::{Colorize as _, Theme, ThemeMode, ThemeTokens};
+ use gpui_kit::{div, px, rgba, App, Div, FontWeight, Hsla, ParentElement, SharedString, Styled};
+ 
+ /// Spacing scale (px): XS inside groups, SM between related rows, MD/LG
+@@ -457,7 +457,17 @@ pub fn apply_theme(theme_mode: &str, high_contrast: bool, cx: &mut App) {
+     theme.radius = px(6.0);
+     theme.radius_lg = px(10.0);
+     theme.font_size = px(14.0);
++    // Buttons (and the scrollbar thumb) read `theme.tokens.*` for their
++    // backgrounds, but everything above only wrote `theme.colors.*`.
++    // `Theme::change` snapshots `tokens` from the kit's stock palette, so
++    // without this rebuild a button keeps the stock background while its
++    // label uses our color: in dark mode the stock primary is near-white
++    // (neutral-50) under our white `accent_fg` = white-on-white buttons.
++    theme.tokens = ThemeTokens::from(&theme.colors);
+     Theme::set_scrollbar_mode(gpui_kit::base::ScrollbarMode::Always, cx);
++    // Push the edited colors/tokens/mode down to the Base layer, which owns
++    // scrollbar painting and keeps its own copy of the theme.
++    Theme::sync_base(cx);
+ }
+ 
+ /// High-contrast overlay: pure black/white text + matching borders on the
+diff --git a/app/src/views.rs b/app/src/views.rs
+index ce7c658..352ba91 100644
+--- a/app/src/views.rs
++++ b/app/src/views.rs
+@@ -122,16 +122,23 @@ impl RootView {
+     /// horizontal overflow keep narrow windows to a single column instead
+     /// of clipping content.
+     fn body_slot(body: gpui_kit::AnyElement) -> Div {
++        // `min_h(0)` is load-bearing: a flex item's automatic minimum height
++        // is its content height, so without it this slot (and the window)
++        // grows to fit the page, the scroller inside never has less room
++        // than its content, and no scrollbar appears. `flex_1()` alone
++        // (basis 0) is right; a trailing `flex_auto()` reset it to basis
++        // `auto` and let long pages push past the viewport.
+         div()
+             .flex_1()
+-            .flex_auto()
+             .min_w(px(0.0))
++            .min_h(px(0.0))
+             .child(
+                 div()
+                     .max_w(px(1200.0))
+                     .mx_auto()
+                     .w_full()
+                     .min_w(px(0.0))
++                    .min_h(px(0.0))
+                     .p_4()
+                     .h_full()
+                     .overflow_x_hidden()
+@@ -265,6 +272,7 @@ impl Render for RootView {
+                         .flex()
+                         .flex_col()
+                         .min_w(px(0.0))
++                        .min_h(px(0.0))
+                         .child(Self::body_slot(body)),
+                 );
+         } else {

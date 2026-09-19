@@ -7,7 +7,7 @@
 //! Neutrals are true grays (no blue tint); functional blues get a slight desaturation
 //! pass so the whole UI reads calmer. All tokens are accessible via helpers below.
 
-use gpui_kit::component::theme::{Colorize as _, Theme, ThemeMode};
+use gpui_kit::component::theme::{Colorize as _, Theme, ThemeMode, ThemeTokens};
 use gpui_kit::{div, px, rgba, App, Div, FontWeight, Hsla, ParentElement, SharedString, Styled};
 
 /// Spacing scale (px): XS inside groups, SM between related rows, MD/LG
@@ -104,7 +104,7 @@ pub struct Palette {
     pub muted_fg: u32,
 }
 
-/// VSCode Dark+ inspired: editor `#1e1e1e`, side bar `#252526`, blue buttons.
+/// Dark+ inspired: editor `#1e1e1e`, side bar `#252526`.
 const PALETTE_DARK: Palette = Palette {
     bg: 0x1e_1e_1e_ff,
     surface: 0x25_25_26_ff,
@@ -256,7 +256,11 @@ fn u32_to_hsla(c: u32) -> Hsla {
         (0.0, 0.0)
     } else {
         let d = max - min;
-        let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+        let s = if l > 0.5 {
+            d / (2.0 - max - min)
+        } else {
+            d / (max + min)
+        };
         let h = if max == r {
             (g - b) / d + (if g < b { 6.0 } else { 0.0 })
         } else if max == g {
@@ -272,7 +276,11 @@ fn u32_to_hsla(c: u32) -> Hsla {
 /// Hover/active derivates: lighten steps on dark bases, darken steps on
 /// light ones (matches the kit's own hover conventions).
 fn shift(c: Hsla, light_base: bool, amt: f32) -> Hsla {
-    if light_base { c.darken(amt) } else { c.lighten(amt) }
+    if light_base {
+        c.darken(amt)
+    } else {
+        c.lighten(amt)
+    }
 }
 
 /// Apply the theme mode to kit widgets, then derive the FULL component
@@ -466,7 +474,11 @@ pub fn apply_theme(theme_mode: &str, high_contrast: bool, cx: &mut App) {
 /// stays recognizable. Selection/overlay/scrim translucency is functional
 /// (keeps selected text readable) and stays as `apply_theme` sets it.
 fn maximize_contrast(pal: &mut Palette, light_base: bool) {
-    pal.fg = if light_base { 0x00_00_00_ff } else { 0xff_ff_ff_ff };
+    pal.fg = if light_base {
+        0x00_00_00_ff
+    } else {
+        0xff_ff_ff_ff
+    };
     pal.border = pal.fg;
     pal.muted_fg = pal.fg;
     // Pick each filled-hue label (black or white) with the better ratio.
@@ -488,7 +500,11 @@ fn maximize_contrast(pal: &mut Palette, light_base: bool) {
 fn luminance(c: u32) -> f32 {
     let chan = |v: u32| {
         let v = v as f32 / 255.0;
-        if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        if v <= 0.03928 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
     };
     let r = chan((c >> 24) & 0xFF);
     let g = chan((c >> 16) & 0xFF);
@@ -500,7 +516,11 @@ fn luminance(c: u32) -> f32 {
 pub fn contrast_ratio(a: u32, b: u32) -> f32 {
     let (hi, lo) = {
         let (la, lb) = (luminance(a), luminance(b));
-        if la >= lb { (la, lb) } else { (lb, la) }
+        if la >= lb {
+            (la, lb)
+        } else {
+            (lb, la)
+        }
     };
     (hi + 0.05) / (lo + 0.05)
 }
@@ -605,8 +625,6 @@ pub fn hint(s: impl Into<SharedString>, theme: &str, hc: bool) -> Div {
         .child(s.into())
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,8 +644,14 @@ mod tests {
 
     #[test]
     fn theme_mode_ext_roundtrip() {
-        assert_eq!(ThemeModeExt::from_str("dark").to_kit_mode(), ThemeMode::Dark);
-        assert_eq!(ThemeModeExt::from_str("light").to_kit_mode(), ThemeMode::Light);
+        assert_eq!(
+            ThemeModeExt::from_str("dark").to_kit_mode(),
+            ThemeMode::Dark
+        );
+        assert_eq!(
+            ThemeModeExt::from_str("light").to_kit_mode(),
+            ThemeMode::Light
+        );
         assert_eq!(
             ThemeModeExt::from_str("gruvbox_dark").to_kit_mode(),
             ThemeMode::Dark
@@ -645,7 +669,10 @@ mod tests {
             ThemeMode::Light
         );
         // Unknown + legacy values fall back to dark, never panic.
-        assert_eq!(ThemeModeExt::from_str("unknown").to_kit_mode(), ThemeMode::Dark);
+        assert_eq!(
+            ThemeModeExt::from_str("unknown").to_kit_mode(),
+            ThemeMode::Dark
+        );
         assert_eq!(
             ThemeModeExt::from_str("high_contrast").to_kit_mode(),
             ThemeMode::Dark
@@ -690,7 +717,10 @@ mod tests {
             // Ghost nav buttons sit transparent on the banner: body text
             // must read there too. Muted hint text stays AA as well.
             let on_banner = contrast_ratio(pal.fg, pal.banner);
-            assert!(on_banner >= 4.5, "{mode}: fg-on-banner ratio {on_banner:.2} < 4.5");
+            assert!(
+                on_banner >= 4.5,
+                "{mode}: fg-on-banner ratio {on_banner:.2} < 4.5"
+            );
             let hint = contrast_ratio(pal.muted_fg, pal.bg);
             assert!(hint >= 4.5, "{mode}: muted ratio {hint:.2} < 4.5");
         }
@@ -705,8 +735,14 @@ mod tests {
             let base = effective_palette(mode, false);
             let hc = effective_palette(mode, true);
             assert_eq!(hc.bg, base.bg, "{mode}: overlay must keep base bg");
-            assert_eq!(hc.banner, base.banner, "{mode}: overlay must keep banner hue");
-            assert_eq!(hc.surface, base.surface, "{mode}: overlay must keep surface");
+            assert_eq!(
+                hc.banner, base.banner,
+                "{mode}: overlay must keep banner hue"
+            );
+            assert_eq!(
+                hc.surface, base.surface,
+                "{mode}: overlay must keep surface"
+            );
             assert_eq!(hc.accent, base.accent, "{mode}: overlay must keep accent");
             assert_eq!(hc.danger, base.danger, "{mode}: overlay must keep danger");
             let light = ThemeModeExt::from_str(mode).is_light();
@@ -763,10 +799,7 @@ mod tests {
                     "{mode}: light banner must be darker than bg"
                 );
             } else {
-                assert_eq!(
-                    pal.banner, pal.bg,
-                    "{mode}: dark banner must equal bg"
-                );
+                assert_eq!(pal.banner, pal.bg, "{mode}: dark banner must equal bg");
             }
         }
     }

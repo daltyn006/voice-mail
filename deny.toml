@@ -27,7 +27,7 @@ targets = []
 db-path = "~/.cargo/advisory-dbs"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
-ignore = []
+ignore = [
 
 [bans]
 multiple-versions = "warn"
