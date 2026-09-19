@@ -1,0 +1,54 @@
+build/
+target/
+dist/
+*.user
+.vs/
+.vscode/*
+.idea/
+Thumbs.db
+.opencode/
+
+# Build outputs
+*.dll
+*.exe
+*.msi
+*.pdb
+*.lib
+*.exp
+*.obj
+!scripts/*.ps1
+
+# Models (2-6GB each, never commit)
+models/
+*.bin
+*.gguf
+*.ggml
+
+# App data / outputs (lecture-note .md/.txt land in output/ — ignored above;
+# the repo's own contract docs are source and must version normally)
+output/
+*.md
+*.txt
+!README.md
+!PINS.md
+!AGENTS.md
+!RELEASE.md
+!SECURITY.md
+!security.txt
+!docs/
+!docs/**
+!CMakeLists.txt
+!**/CMakeLists.txt
+!config/guides/
+!config/guides/*.md
+*.json
+!**/package.json
+!**/models.json
+app.db
+app.db-journal
+
+# Deps fetched at build time
+core/thirdparty/whisper.cpp/
+core/thirdparty/llama.cpp/
+core/thirdparty/sqlite/
+ffmpeg-dlls/

@@ -1,0 +1,184 @@
+name: release
+on:
+  push:
+    branches: ['main']
+    tags: ['v*']
+  pull_request:
+    branches: ['main']
+  workflow_dispatch:
+
+# Least privilege: read by default; the release publish step runs under a
+# job-level write grant below.
+permissions:
+  contents: read
+
+jobs:
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchains
+        run: rustup default stable
+        shell: bash
+
+      - name: Advisory audit (RUSTSEC)
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+        shell: bash
+
+      - name: Dependency policy (deny.toml — advisories + bans + licenses)
+        run: |
+          cargo install cargo-deny --locked
+          cargo deny check advisories bans licenses
+        shell: bash
+
+  build-windows:
+    needs: [supply-chain]
+    runs-on: windows-latest
+    # Tag publishes need Fabian release creation; checks run read-only.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Toolchains
+        run: rustup default stable
+        shell: pwsh
+
+      - name: Vulkan SDK (best effort, CPU fallback otherwise)
+        continue-on-error: true
+        run: choco install vulkan-sdk -y
+        shell: pwsh
+
+      - name: FFmpeg + sqlite
+        run: |
+          choco install ffmpeg -y
+          New-Item -ItemType Directory -Force ffmpeg-dlls | Out-Null
+          $ff = (Get-Command ffmpeg).Source; $d = Split-Path $ff
+          Copy-Item (Join-Path $d 'ffmpeg.exe') ffmpeg-dlls/
+          Copy-Item (Join-Path $d '*.dll') ffmpeg-dlls/
+          New-Item -ItemType Directory -Force core/thirdparty/sqlite | Out-Null
+          Invoke-WebRequest https://www.sqlite.org/2024/sqlite-amalgamation-3460100.zip -OutFile $env:TEMP/sqlite.zip
+          Expand-Archive $env:TEMP/sqlite.zip core/thirdparty/sqlite -Force
+          Copy-Item core/thirdparty/sqlite/sqlite-amalgamation-*/sqlite3.* core/thirdparty/sqlite/ -Force
+        shell: pwsh
+
+      - name: Backend sources (whisper.cpp + llama.cpp)
+        # No .gitmodules on purpose (dev boxes fetch via
+        # scripts/setup-windows.ps1 with a zip fallback); CI takes shallow
+        # trees straight from upstream heads. Unpinned by design here — the
+        # mock gate below is the safety property (tags can never ship mock
+        # transcription). TODO: pin SHAs once measured on a dev box.
+        run: |
+          if (!(Test-Path core/thirdparty/whisper.cpp/CMakeLists.txt)) {
+            git clone --depth 1 https://github.com/ggerganov/whisper.cpp core/thirdparty/whisper.cpp
+          }
+          if (!(Test-Path core/thirdparty/llama.cpp/CMakeLists.txt)) {
+            git clone --depth 1 https://github.com/ggml-org/llama.cpp core/thirdparty/llama.cpp
+          }
+        shell: pwsh
+
+      - name: Build core DLL
+        run: |
+          cmake -S . -B core/build -A x64 -DGGML_VULKAN=ON -DLLAMA_VULKAN=ON
+          cmake --build core/build --config Release
+        shell: pwsh
+
+      - name: Mock gate (tags never ship mock transcription)
+        # Vision (mtmd) may stay mock — it degrades gracefully at runtime.
+        # STT/LLM must be real: packaging a mock transcriber is a silent
+        # wrong-product release.
+        run: |
+          $missing = @()
+          if (!(Test-Path core/thirdparty/whisper.cpp/CMakeLists.txt)) { $missing += 'whisper.cpp' }
+          if (!(Test-Path core/thirdparty/llama.cpp/CMakeLists.txt)) { $missing += 'llama.cpp' }
+          if ($missing.Count -gt 0) {
+            Write-Error "REFUSING: missing backends ($($missing -join ', ')) — release would ship MOCK STT/LLM"
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Smoke test
+        run: node tests/smoke.mjs
+        shell: pwsh
+
+      - name: Build workspace (GPUI app + backend)
+        run: |
+          cargo build --workspace --release
+          cargo test --workspace
+        shell: pwsh
+
+      - name: Pin gate (fail closed on empty sha256)
+        # RELEASE.md / SECURITY.md: tags must never ship size-only
+        # enforcement. Non-tag pushes only report (pins populate on a
+        # networked dev box via measure-models.ps1 + Hub-OID diff).
+        run: |
+          $empty = node -e "const m=require('./config/models.json');const e=[];for(const k of ['stt_models','llm_models'])for(const x of (m[k]||[]))if(!(x.sha256||'').trim())e.push(x.id);for(const x of (m.vision_models||[]))if(!(x.text_sha256||x.sha256||'').trim()||!(x.mmproj_sha256||x.sha256||'').trim())e.push(x.id);console.log('unpinned: '+(e.join(', ')||'none'));if(process.env.GITHUB_REF_TYPE==='tag'&&e.length){console.error('REFUSING: '+e.length+' model pin(s) empty — populate via measure-models.ps1 + Hub-OID diff before release');process.exit(1)}"
+          echo "$empty"
+          "pin-coverage=$empty" >> $env:GITHUB_STEP_SUMMARY
+        shell: pwsh
+
+      - name: Package installers (NSIS per-machine exe + per-user MSI)
+        # Tags only: PR/branch runs stop after checks (build + test + gates).
+        if: startsWith(github.ref, 'refs/tags/')
+        # MSI needs the VBScript optional Windows feature (on by default on
+        # windows-latest; if light.exe fails, enable it in Optional features).
+        run: |
+          cargo install cargo-packager --locked
+          cargo packager --release
+        working-directory: app
+        shell: pwsh
+
+      - name: SBOM (CycloneDX, per release)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cargo install cargo-cyclonedx --locked
+          cargo cyclonedx --all --format json
+        shell: pwsh
+
+      - name: Checksums (SHA256SUMS over dist)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          Get-ChildItem dist -Recurse -Include *.exe, *.msi | ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.FullName } | Set-Content dist/SHA256SUMS -Encoding ascii
+          Get-Content dist/SHA256SUMS
+        shell: pwsh
+
+      - name: Upload NSIS installer (program only, no models, no scripts)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: PresentVoice-Setup
+          path: dist/nsis/*.exe
+
+      - name: Upload MSI installer (program only, no models, no scripts)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: PresentVoice-MSI
+          path: dist/msi/*.msi
+
+      - name: Upload SBOM + checksums
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: PresentVoice-SBOM
+          path: |
+            target/cyclonedx/*.json
+            dist/SHA256SUMS
+
+      - name: GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/nsis/*.exe
+            dist/msi/*.msi
+            dist/SHA256SUMS
+          body: |
+            NSIS .exe + MSI, both per-machine. Program only — no models,
+            no scripts. Models download direct from HuggingFace on first launch
+            (tier auto-picked, visible override), then the app runs fully offline.

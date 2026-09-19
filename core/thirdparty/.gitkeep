@@ -1,0 +1,1 @@
+ thirdparty dirs are populated by scripts/setup-windows.ps1 (git submodules + sqlite amalgamation).

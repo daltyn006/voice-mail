@@ -1,0 +1,11 @@
+[workspace]
+members = ["app", "pv-backend"]
+resolver = "2"
+
+# Workaround for an upstream bug in gpui-pre-macros 0.3.1: its
+# derive_inspector_reflection module is cfg'd out when debug_assertions are
+# off, but still referenced unconditionally — so release builds fail with
+# E0433 while debug builds pass. Re-enable assertions in release until the
+# quarterly pin review picks up a fixed gpui-pre (then drop this block).
+[profile.release]
+debug-assertions = true

@@ -1,0 +1,65 @@
+# cargo-deny policy (SSDF PW.3 — use only known-vulnerable-free dependencies).
+#
+# Run locally: `cargo deny check advisories bans licenses`
+# CI (`supply-chain` job) runs the same on every push. The advisories check
+# needs network for the RUSTSEC DB; bans + licenses are local to Cargo.lock.
+#
+# License posture (inventoried 2026-09-18 from `cargo deny` over Cargo.lock):
+# permissive-only, with three conscious exceptions —
+# - MPL-2.0 (`dwrote`, `option-ext` — file-level copyleft in the Windows
+#   font/dir stack; `cbindgen` — build-time only): obligation is source
+#   availability for the covered files, met via crates.io. No GPL-in-binary.
+# - CDLA-Permissive-2.0 (`webpki-roots`): root-certificate DATA, permissive.
+# - bzip2-1.0.6 (`libbz2-rs-sys`): BSD-style permissive.
+# Dual/triple ORs (`self_cell` Apache/GPL, `r-efi` MIT/Apache/LGPL,
+# `wit-bindgen` Apache+LLVM-exception/Apache/MIT) are taken under their
+# MIT/Apache grants — the copyleft alternatives are never selected, so
+# GPL/LGPL stay off the allow-list by design (no per-crate `exceptions`
+# needed; note 0.20 `exceptions` are per-crate tables, not strings —
+# a string entry panics toml-span instead of a config error).
+# Repo license itself is TBD (workspace crates are unlicensed in-tree):
+# `private.ignore` covers them until a license is chosen — see SECURITY.md.
+
+[graph]
+targets = []
+
+[advisories]
+db-path = "~/.cargo/advisory-dbs"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+deny = []
+skip = []
+
+# Note: cargo-deny 0.20 removed the `unlicensed` key (PR #611); workspace
+# crates without license metadata are covered by `[licenses.private] ignore`
+# below until the repo chooses a license. Third-party crates without license
+# metadata fail the allow-list by construction.
+[licenses]
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unlicense",
+    "Unicode-3.0",
+    "Zlib",
+    "bzip2-1.0.6",
+]
+
+[licenses.private]
+ignore = true
+
+
+

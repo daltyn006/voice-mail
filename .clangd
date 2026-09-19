@@ -1,0 +1,8 @@
+# Fallback flags for clangd (Zed) on core/src/*.cpp.
+# The Visual Studio generator emits no compile_commands.json, so the real
+# CMake definitions are mirrored here instead: with PRESENT_CORE_BUILD set,
+# PV_API expands to dllexport on declarations (matching the undecorated
+# definitions), which is exactly what MSVC sees. Mirrors
+# core/CMakeLists.txt `target_compile_definitions` + C++20.
+CompileFlags:
+  Add: [-std=c++20, -DPRESENT_CORE_BUILD, -DNOMINMAX, -DWIN32_LEAN_AND_MEAN]
