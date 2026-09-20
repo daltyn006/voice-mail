@@ -122,12 +122,18 @@ impl RootView {
     /// horizontal overflow keep narrow windows to a single column instead
     /// of clipping content.
     fn body_slot(body: gpui_kit::AnyElement) -> Div {
-        div().flex_1().flex_auto().min_w(px(0.0)).child(
+        // `min_h(0)` is load-bearing: a flex item's automatic minimum height
+        // is its content height, so without it this slot (and the window)
+        // grows to fit the page, the inner scroller never has less room than
+        // its content, and no scrollbar appears. `flex_1()` alone (basis 0)
+        // is right; a trailing `flex_auto()` reset it to basis `auto`.
+        div().flex_1().min_w(px(0.0)).min_h(px(0.0)).child(
             div()
                 .max_w(px(1200.0))
                 .mx_auto()
                 .w_full()
                 .min_w(px(0.0))
+                .min_h(px(0.0))
                 .p_4()
                 .h_full()
                 .overflow_x_hidden()
@@ -260,6 +266,7 @@ impl Render for RootView {
                         .flex()
                         .flex_col()
                         .min_w(px(0.0))
+                        .min_h(px(0.0))
                         .child(Self::body_slot(body)),
                 );
         } else {

@@ -17,8 +17,8 @@
 # GPL/LGPL stay off the allow-list by design (no per-crate `exceptions`
 # needed; note 0.20 `exceptions` are per-crate tables, not strings —
 # a string entry panics toml-span instead of a config error).
-# Repo license itself is TBD (workspace crates are unlicensed in-tree):
-# `private.ignore` covers them until a license is chosen — see SECURITY.md.
+# Workspace crates are `publish = false`, so `[licenses.private] ignore`
+# covers them regardless of their own license metadata.
 
 [graph]
 targets = []
@@ -28,6 +28,14 @@ db-path = "~/.cargo/advisory-dbs"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
 ignore = [
+    # Unmaintained-crate notices (not vulnerabilities), all transitive via the
+    # pinned UI stack / document extractors; re-check at each quarterly PINS.md review.
+    { id = "RUSTSEC-2024-0384", reason = "instant: unmaintained; via gpui-base/gpui-component/notify (UI stack)" },
+    { id = "RUSTSEC-2024-0436", reason = "paste: unmaintained proc-macro; via gpui-component/metal/pulp (UI stack)" },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile: unmaintained; via gpui-pre-reqwest (UI stack)" },
+    { id = "RUSTSEC-2026-0206", reason = "rustybuzz: unmaintained; via usvg (SVG rendering)" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser: unmaintained; via fontdb/gpui-pre/lopdf/rustybuzz" },
+]
 
 [bans]
 multiple-versions = "warn"

@@ -465,7 +465,17 @@ pub fn apply_theme(theme_mode: &str, high_contrast: bool, cx: &mut App) {
     theme.radius = px(6.0);
     theme.radius_lg = px(10.0);
     theme.font_size = px(14.0);
+    // Buttons (and the scrollbar thumb) read `theme.tokens.*` for their
+    // backgrounds, but everything above only wrote `theme.colors.*`.
+    // `Theme::change` snapshots `tokens` from the kit's stock palette, so
+    // without this rebuild a button keeps the stock background while its
+    // label uses our color: in dark mode the stock primary is near-white
+    // under our white `accent_fg` = white-on-white buttons.
+    theme.tokens = ThemeTokens::from(&theme.colors);
     Theme::set_scrollbar_mode(gpui_kit::base::ScrollbarMode::Always, cx);
+    // Push the edited colors/tokens/mode down to the Base layer, which owns
+    // scrollbar painting and keeps its own copy of the theme.
+    Theme::sync_base(cx);
 }
 
 /// High-contrast overlay: pure black/white text + matching borders on the

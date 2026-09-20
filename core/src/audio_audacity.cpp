@@ -470,6 +470,7 @@ bool parse_project(const XNode& root, double& proj_rate, std::vector<Track>& tra
     return true;
 }
 
+#ifdef PV_HAVE_SQLITE
 // ---- sampleblocks access (read-only handle, blocks cached small). ----
 
 struct BlockCache {
@@ -556,6 +557,7 @@ bool read_blob(sqlite3* db, const char* table, const char* col, std::vector<unsi
     sqlite3_finalize(st);
     return ok;
 }
+#endif  // PV_HAVE_SQLITE
 
 }  // namespace
 

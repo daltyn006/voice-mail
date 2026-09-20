@@ -19,10 +19,28 @@ const ALLOWED_EXTS: &[&str] = &["md", "json"];
 /// checked lexically before any filesystem access.
 fn confine(base: &Path, name: &str) -> Result<PathBuf, String> {
     let rel = Path::new(name);
-    if rel.is_absolute() {
+    // Platform-independent lexical checks: `Path::is_absolute` alone misses
+    // drive-relative (`C:x.md`), rooted (`\x.md`) and NTFS-stream (`x.md:s`)
+    // names on Windows, and treats `C:/x.md` as relative on Unix.
+    let bytes = name.as_bytes();
+    let drive_prefixed = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    if rel.is_absolute()
+        || drive_prefixed
+        || name.starts_with(['/', '\\'])
+        || rel
+            .components()
+            .any(|c| matches!(c, Component::Prefix(_) | Component::RootDir))
+    {
         return Err(format!("absolute paths not allowed: {name}"));
     }
-    if rel.components().any(|c| matches!(c, Component::ParentDir)) {
+    if name.contains(':') {
+        return Err(format!("stream/drive syntax not allowed: {name}"));
+    }
+    if name
+        .split(['/', '\\'])
+        .any(|seg| seg == "..")
+        || rel.components().any(|c| matches!(c, Component::ParentDir))
+    {
         return Err(format!("path escapes output dir: {name}"));
     }
     match rel.extension().and_then(|e| e.to_str()) {
@@ -537,9 +555,15 @@ mod tests {
     }
 
     #[test]
-    fn confine_rejects_escapes_absolutes_and_bad_exts() {        let base = Path::new("C:/data/out");
+    fn confine_rejects_escapes_absolutes_and_bad_exts() {
+        let base = Path::new("C:/data/out");
         assert!(confine(base, "../x.md").is_err());
         assert!(confine(base, "C:/other/y.md").is_err());
+        assert!(confine(base, "C:other.md").is_err()); // drive-relative
+        assert!(confine(base, "\\other.md").is_err()); // rooted
+        assert!(confine(base, "/other.md").is_err());
+        assert!(confine(base, "a.md:stream.md").is_err()); // NTFS ADS
+        assert!(confine(base, "sub\\..\\..\\x.md").is_err()); // backslash traversal
         assert!(confine(base, "y.exe").is_err());
         assert!(confine(base, "y").is_err());
         assert_eq!(confine(base, "sub/y.md").unwrap(), base.join("sub/y.md"));

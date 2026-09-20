@@ -38,6 +38,7 @@ pub struct Accepted {
     pub warning: Option<String>,
 }
 
+#[cfg(target_os = "windows")]
 #[link(name = "kernel32")]
 extern "system" {
     fn GetDriveTypeW(root: *const u16) -> u32;
@@ -45,6 +46,8 @@ extern "system" {
 
 const DRIVE_UNKNOWN: u32 = 0;
 const DRIVE_REMOVABLE: u32 = 2;
+#[cfg(not(target_os = "windows"))]
+const DRIVE_FIXED: u32 = 3;
 const DRIVE_REMOTE: u32 = 4;
 
 /// True for `\\server\share` and `\\?\…` prefixes (verbatim included).
@@ -78,9 +81,17 @@ pub fn has_ads(path: &str) -> bool {
     false
 }
 
+#[cfg(target_os = "windows")]
 fn drive_kind(root: &str) -> u32 {
     let wide: Vec<u16> = root.encode_utf16().chain(Some(0)).collect();
     unsafe { GetDriveTypeW(wide.as_ptr()) }
+}
+
+/// Non-Windows: no drive-type API is wired up, so report a fixed disk rather
+/// than UNKNOWN (which the caller treats as fail-closed for capture paths).
+#[cfg(not(target_os = "windows"))]
+fn drive_kind(_root: &str) -> u32 {
+    DRIVE_FIXED
 }
 
 /// `C:\`, `D:` → `C:\` root for the drive-type query. UNC → itself.

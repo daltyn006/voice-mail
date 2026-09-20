@@ -126,6 +126,14 @@ Events flow: core → mpsc channel → `spawn_pump` → async channel → UI tas
 - CI (`release.yml`): push(main)+PR triggers, `needs: [supply-chain]`, least-privilege permissions (read top, write on build job), backend-ensure step, mock-STT/LLM fail-closed gate, tag-only packaging/uploads.
 - Verification: `cargo check` 0 warnings, 136 tests, 413 smoke checks, debug + release launch-tested (tabs + sidebar).
 
+### Cross-platform verification pass (2026-09-20, Linux + MinGW-w64)
+- `pv-backend` now builds and tests on Linux (76 tests): `paths.rs` gated `GetDriveTypeW`/`kernel32` to Windows (non-Windows reports a fixed drive instead of failing closed).
+- `queue::confine` hardened with platform-independent lexical checks: drive-relative (`C:x.md`), rooted (`\x.md`), NTFS-stream (`x.md:s`) and backslash-traversal names are rejected on every OS (previously relied on `Path::is_absolute`, which differs per platform).
+- `core/src/audio_audacity.cpp`: `BlockCache`/`read_blob` now inside `#ifdef PV_HAVE_SQLITE`; the documented no-sqlite (mock) build previously failed to compile. All 15 core files compile warning-free at `-Wall -std=c++20` under MinGW-w64, and the full DLL links with 19 exports matching `present_core.h`.
+- `deny.toml` was invalid TOML (unterminated `ignore = [`); completed with the intended RUSTSEC ignores. `pv-backend` marked `publish = false`.
+- Two half-applied patch files (`fix-ci-deny`, `fix-dark-buttons-scrollbar`) finished by hand and removed: `apply_theme` now rebuilds `theme.tokens` + `Theme::sync_base`, and `body_slot` gets `min_h(0)` so long pages scroll.
+- NOT verified here: the GPUI `app` crate (needs rustc 1.92 + Windows), the theme/layout edits above, real whisper/llama backends, and the `sha256` pins (8 still empty in `models.json`; CI tag gate fails closed until populated).
+
 ### Known limitations (not bugs)
 - Missing `core/thirdparty/whisper.cpp/` and `core/thirdparty/llama.cpp/` submodules → builds with MOCK STT/LLM only. Run `scripts/setup-windows.ps1` to get real backends.
 - `ViewMode::Small` exists but is never constructed as a value (only matched). Suppressed with `#[allow(dead_code)]`.
