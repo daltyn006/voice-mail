@@ -149,21 +149,21 @@ jobs:
 
       - name: Upload NSIS installer (program only, no models, no scripts)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PresentVoice-Setup
           path: dist/nsis/*.exe
 
       - name: Upload MSI installer (program only, no models, no scripts)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PresentVoice-MSI
           path: dist/msi/*.msi
 
       - name: Upload SBOM + checksums
         if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PresentVoice-SBOM
           path: |
