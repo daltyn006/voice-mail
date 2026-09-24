@@ -12,7 +12,7 @@ path = "src/main.rs"
 # UI pins (see PINS.md): depend on the gpui-kit facade ONLY — it re-exports
 # the matching gpui-pre/gpui-component set, so no version can drift apart.
 # Code says `use gpui_kit::...` throughout; direct gpui deps are banned.
-gpui-kit = "=0.6.1"
+gpui-kit = "=0.6.4"
 pv-backend = { path = "../pv-backend" }
 # Native file dialogs (replaces the Tauri dialog plugin).
 rfd = "0.15"
