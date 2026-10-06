@@ -62,7 +62,7 @@ fn pick_video_files() -> Option<Vec<std::path::PathBuf>> {
 /// blink, event pump) re-enter the app borrow and panic with
 /// `RefCell already borrowed` (see crash.log). The dialog runs on a worker
 /// thread while the UI thread stays free, so no re-entrancy is possible.
-fn spawn_file_pick<F>(store: Entity<Store>, pick: F, cx: &mut App)
+pub(crate) fn spawn_file_pick<F>(store: Entity<Store>, pick: F, cx: &mut App)
 where
     F: FnOnce() -> Option<Vec<std::path::PathBuf>> + Send + 'static,
 {

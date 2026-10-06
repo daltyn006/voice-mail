@@ -115,7 +115,7 @@ impl RootView {
 
     /// Bounded body slot shared by both layouts: every page gets the
     /// leftover viewport height. Scrolling lives ONLY in the page-level
-    /// containers (`input-scroll`, `settings-scroll`, …): a single scroller
+    /// containers (see [`page_scroll_ids`]): a single scroller
     /// per page, so wheel events always reach the element that can move.
     /// (A scrollable wrapper here would sit under the cursor and eat the
     /// wheel while having nothing to scroll.) `min_w(0)` keeps narrow
@@ -184,6 +184,26 @@ impl RootView {
         crate::theme::apply_theme(&theme_mode, high_contrast, cx);
         self.store.update(cx, |_, cx| cx.notify());
     }
+}
+
+/// Scroll-container registry: every full-screen surface owns exactly one
+/// page-level scroll box `(page, scroll element id)`. A surface missing
+/// here is unreachable on small windows — add the scroller AND extend this
+/// list (the test below + `tests/smoke.mjs` enforce both directions: the
+/// registry lists exactly the ids present in the view sources).
+/// Test-only: production code addresses scrollers by literal id at each
+/// build site; this is the checklist, not a lookup.
+#[cfg(test)]
+pub fn page_scroll_ids() -> [(&'static str, &'static str); 7] {
+    [
+        ("input", "input-scroll"),
+        ("record", "record-scroll"),
+        ("output", "output-scroll"),
+        ("models", "models-scroll"),
+        ("settings", "settings-scroll"),
+        ("wizard", "wizard-scroll"),
+        ("review", "review-scroll"),
+    ]
 }
 
 impl Render for RootView {
@@ -289,5 +309,31 @@ impl Render for RootView {
                 .child(Self::body_slot(body));
         }
         root.into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// Every full-screen surface owns exactly one scroll box: no
+    /// unreachable screens (the small-window Settings trap), no duplicate
+    /// scroller ids (duplicate GPUI element ids panic the a11y tree).
+    #[test]
+    fn every_surface_owns_exactly_one_scroll_box() {
+        let ids = page_scroll_ids();
+        assert_eq!(ids.len(), 7, "add the scroller AND extend the registry");
+        let pages: HashSet<_> = ids.iter().map(|(p, _)| *p).collect();
+        let scrolls: HashSet<_> = ids.iter().map(|(_, s)| *s).collect();
+        assert_eq!(pages.len(), ids.len(), "duplicate page in registry");
+        assert_eq!(scrolls.len(), ids.len(), "duplicate scroll id in registry");
+        for (page, scroll) in ids {
+            assert!(!page.is_empty() && !scroll.is_empty());
+            assert!(
+                scroll.ends_with("-scroll"),
+                "{page}: scroll id {scroll} must end in -scroll"
+            );
+        }
     }
 }

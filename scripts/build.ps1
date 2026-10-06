@@ -82,6 +82,30 @@ if (-not (Test-Path ffmpeg-dlls/ffmpeg.exe)) {
   Write-Warning 'ffmpeg-dlls/ffmpeg.exe missing: re-run with -Setup (decode will fail without it).'
 }
 
+# ---- 2b. Backend provenance: record thirdparty SHAs per build ----
+# Releases must be traceable to exact backend sources (CI clones floating
+# heads, so the lockfile says nothing about C++). Never fails the build:
+# missing trees record as mock, missing git as unknown.
+function Get-TreeSha([string]$path) {
+  if (-not (Test-Path (Join-Path $path 'CMakeLists.txt'))) { return 'missing (mock backend)' }
+  try {
+    $sha = git -C $path rev-parse HEAD 2>$null
+    if ($sha) { return $sha.Trim() }
+  } catch {}
+  return 'unknown'
+}
+$vk = if ($env:VULKAN_SDK -and (Test-Path $env:VULKAN_SDK)) { $env:VULKAN_SDK } else { 'none (CPU-only backends)' }
+$buildInfo = [ordered]@{
+  built_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+  whisper_sha  = Get-TreeSha 'core/thirdparty/whisper.cpp'
+  llama_sha    = Get-TreeSha 'core/thirdparty/llama.cpp'
+  sqlite       = if (Test-Path 'core/thirdparty/sqlite/sqlite3.c') { 'present' } else { 'missing (mtime fallback)' }
+  vulkan_sdk   = $vk
+}
+New-Item -ItemType Directory -Force ffmpeg-dlls | Out-Null
+$buildInfo | ConvertTo-Json | Set-Content ffmpeg-dlls/build-info.json -Encoding ascii
+Write-Host "Backend provenance: whisper=$($buildInfo.whisper_sha) llama=$($buildInfo.llama_sha)"
+
 # ---- 3. Rust workspace (GPUI app + backend lib) ----
     # No console window: app/src/main.rs sets #![windows_subsystem = "windows"],
     # so plain cargo build already targets the GUI subsystem (dev and release).
@@ -112,6 +136,7 @@ foreach ($prof in @('debug', 'release')) {
   if ((Test-Path $bindir) -and $dll) {
     Copy-Item $dll "$bindir/present_core.dll" -Force
     Copy-Item config/models.json "$bindir/models.json" -Force
+    if (Test-Path ffmpeg-dlls/build-info.json) { Copy-Item ffmpeg-dlls/build-info.json "$bindir/build-info.json" -Force }
     if (Test-Path ffmpeg-dlls/ffmpeg.exe) { Copy-Item ffmpeg-dlls/ffmpeg.exe "$bindir/ffmpeg.exe" -Force }
     Get-ChildItem ffmpeg-dlls/*.dll -ErrorAction SilentlyContinue |
       Copy-Item -Destination "$bindir/" -Force

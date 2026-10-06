@@ -169,7 +169,7 @@ jobs:
           name: PresentVoice-MSI
           path: dist/msi/*.msi
 
-      - name: Upload SBOM + checksums
+      - name: Upload SBOM + checksums + backend provenance
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
@@ -177,6 +177,7 @@ jobs:
           path: |
             target/cyclonedx/*.json
             dist/SHA256SUMS
+            ffmpeg-dlls/build-info.json
 
       - name: GitHub Release
         if: startsWith(github.ref, 'refs/tags/')

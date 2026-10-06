@@ -23,6 +23,12 @@ async-channel = "2"
 # Windows exe icon (app.rc → assets/voice-mail.ico).
 embed-resource = "=3.0.11"
 
+[dev-dependencies]
+# Headless UI tests only (`TestApp`): the facade forwards `test-support` to
+# the matched gpui stack. Still facade-only per PINS.md — never depend on raw
+# gpui crates directly. Test builds only; normal builds are unaffected.
+gpui-kit = { version = "=0.6.1", features = ["test-support"] }
+
 # ---- cargo-packager config (M5): NSIS per-machine exe + per-user MSI ----
 # Paths are relative to this file. NSIS/Wix place `resources` beside the exe,
 # which matches the exe-dir-first resolution in pv-backend + audio_ffmpeg.
