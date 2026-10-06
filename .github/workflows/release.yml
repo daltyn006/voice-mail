@@ -49,9 +49,17 @@ jobs:
         run: rustup default stable
         shell: pwsh
 
-      - name: Vulkan SDK (best effort, CPU fallback otherwise)
-        continue-on-error: true
-        run: choco install vulkan-sdk -y
+      - name: Vulkan SDK (required — releases ship GPU backends)
+        # No continue-on-error: a silent SDK miss used to ambush cmake
+        # later inside ggml-vulkan's non-optional find_package(Vulkan).
+        # Exports VULKAN_SDK + Bin (glslc) for all later steps.
+        run: |
+          choco install vulkan-sdk -y
+          $vkRoot = Get-ChildItem 'C:\VulkanSDK' -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $vkRoot) { Write-Error 'Vulkan SDK install produced no C:\VulkanSDK\<version> dir'; exit 1 }
+          "VULKAN_SDK=$($vkRoot.FullName)" >> $env:GITHUB_ENV
+          "$($vkRoot.FullName)\Bin" >> $env:GITHUB_PATH
+          if (!(Test-Path (Join-Path $vkRoot.FullName 'Bin\glslc.exe'))) { Write-Error 'glslc.exe missing from Vulkan SDK Bin (FindVulkan needs it)'; exit 1 }
         shell: pwsh
 
       - name: FFmpeg + sqlite
