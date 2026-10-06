@@ -165,6 +165,48 @@ fn choice(
     row.into_any_element()
 }
 
+/// Off-thread folder picker (same `RefCell already borrowed` rationale as
+/// Input's `spawn_file_pick`): the native dialog runs on a worker thread
+/// while the UI thread stays free, then `apply` runs back on the UI thread
+/// with the chosen path.
+fn spawn_folder_pick(
+    store: Entity<Store>,
+    apply: fn(Entity<Store>, String, &mut App),
+    cx: &mut App,
+) {
+    crate::shutdown_trace("folder dialog opened (off-thread)");
+    cx.spawn(async move |cx| {
+        let picked = cx
+            .background_executor()
+            .spawn(async move { rfd::FileDialog::new().pick_folder() })
+            .await;
+        crate::shutdown_trace("folder dialog closed");
+        if let Some(p) = picked {
+            let p = p.to_string_lossy().into_owned();
+            cx.update(|cx| apply(store, p, cx));
+        }
+    })
+    .detach();
+}
+
+fn apply_outdir(store: Entity<Store>, p: String, cx: &mut App) {
+    store.update(cx, |s, cx| {
+        if let Err(e) = s.set_default_outdir(&p) {
+            s.push_error("Settings", format!("Bad output folder: {e}"), String::new());
+        }
+        cx.notify();
+    });
+}
+
+fn apply_models_dir(store: Entity<Store>, p: String, cx: &mut App) {
+    store.update(cx, |s, cx| {
+        if let Err(e) = s.set_custom_models_dir(&p) {
+            s.push_error("Settings", format!("Bad models folder: {e}"), String::new());
+        }
+        cx.notify();
+    });
+}
+
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let s = self.store.read(cx);
@@ -544,15 +586,7 @@ impl Render for SettingsView {
                             .on_click({
                                 let store = store.clone();
                                 move |_, _, cx| {
-                                    if let Some(p) = rfd::FileDialog::new().pick_folder() {
-                                        let p = p.to_string_lossy().into_owned();
-                                        store.update(cx, |s, cx| {
-                                            if let Err(e) = s.set_default_outdir(&p) {
-                                                s.push_error("Settings", format!("Bad output folder: {e}"), String::new());
-                                            }
-                                            cx.notify();
-                                        });
-                                    }
+                                    spawn_folder_pick(store.clone(), apply_outdir, cx);
                                 }
                             }),
                     )
@@ -582,15 +616,7 @@ impl Render for SettingsView {
                             .on_click({
                                 let store = store.clone();
                                 move |_, _, cx| {
-                                    if let Some(p) = rfd::FileDialog::new().pick_folder() {
-                                        let p = p.to_string_lossy().into_owned();
-                                        store.update(cx, |s, cx| {
-                                            if let Err(e) = s.set_custom_models_dir(&p) {
-                                                s.push_error("Settings", format!("Bad models folder: {e}"), String::new());
-                                            }
-                                            cx.notify();
-                                        });
-                                    }
+                                    spawn_folder_pick(store.clone(), apply_models_dir, cx);
                                 }
                             }),
                     )
@@ -940,11 +966,12 @@ impl Render for SettingsView {
         );
         body = body.child(theme::value(status, &theme_mode, high_contrast));
         // Scrollable so all seven sections fit any window size (nav stays
-        // fixed — only this page body scrolls).
+        // fixed — only this page body scrolls). Both axes: narrow windows
+        // scroll sideways instead of clipping.
         div()
             .flex_1()
             .h_full()
-            .overflow_y_scrollbar()
+            .overflow_scrollbar()
             .id("settings-scroll")
             .child(body)
             .into_any_element()

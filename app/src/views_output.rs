@@ -474,10 +474,11 @@ impl Render for OutputView {
         );
         // Page-level bound (matches Settings/Input/Models): the list + tree
         // live inside the root's bounded slot so small windows scroll.
+        // Both axes: narrow windows scroll sideways instead of clipping.
         div()
             .flex_1()
             .h_full()
-            .overflow_y_scrollbar()
+            .overflow_scrollbar()
             .id("output-scroll")
             .child(body)
             .into_any_element()
@@ -537,7 +538,17 @@ impl OutputView {
         );
         let (left, right, center) = panes.clone();
         let back_panes = panes.clone();
-        v_flex()
+        // Review owns a page-level scroll box (matches the Output list):
+        // panes + editors + diff scroll inside the bounded root slot on
+        // small windows instead of clipping the action bar. The inner
+        // `rev-unified` diff keeps its own fixed-height y-scroll.
+        div()
+            .flex_1()
+            .h_full()
+            .overflow_scrollbar()
+            .id("review-scroll")
+            .child(
+                v_flex()
             .gap(px(theme::SPACE_LG))
             .p(px(theme::SPACE_XL))
             .child(
@@ -695,6 +706,7 @@ impl OutputView {
                     .overflow_y_scrollbar()
                     .id("rev-unified")
                     .children(rows),
+            )
             )
             .into_any_element()
     }

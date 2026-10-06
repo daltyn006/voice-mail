@@ -682,10 +682,11 @@ impl Render for ModelsView {
             );
         // Page-level scroll (matches Settings/Input): tier panel + columns +
         // Ollama list scroll inside the bounded root slot on small windows.
+        // Both axes: narrow windows scroll sideways instead of clipping.
         div()
             .flex_1()
             .h_full()
-            .overflow_y_scrollbar()
+            .overflow_scrollbar()
             .id("models-scroll")
             .child(body)
             .into_any_element()
