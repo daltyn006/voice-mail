@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(present_voice LANGUAGES C CXX)
+project(voice_mail LANGUAGES C CXX)
 
 # Inherited default for thirdparty trees (whisper pins its own 17, llama
 # targets must NOT see C++20: u8 literals become char8_t and break MSVC).

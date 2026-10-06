@@ -23,7 +23,7 @@ async-channel = "2"
 # Windows exe icon (app.rc → assets/voice-mail.ico).
 embed-resource = "=3.0.11"
 
-# ---- cargo-packager config (M5): NSIS per-machine exe + per-user MSI ----
+# ---- cargo-packager config (M5): NSIS per-machine exe + per-machine MSI ----
 # Paths are relative to this file. NSIS/Wix place `resources` beside the exe,
 # which matches the exe-dir-first resolution in pv-backend + audio_ffmpeg.
 # Program only: no models/, no scripts/ — models install separately via the
@@ -76,3 +76,9 @@ preinstall-section = """
     SectionEnd
 """
 appdata-paths = ["$LOCALAPPDATA/voice mail"]
+
+# MSI-single (full per-machine installer) + the feed-driven update path both
+# rely on this stable upgrade code: reinstalling a newer MSI is a major
+# upgrade, never a second install. NEVER change this GUID.
+[package.metadata.packager.wix]
+upgrade-code = "D8E1D4F5-7BC7-4B9C-A97E-F896B2E186B7"
