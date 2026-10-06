@@ -1,7 +1,7 @@
 [package]
 publish = false
 name = "voice-mail"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 
 [[bin]]
@@ -30,7 +30,7 @@ embed-resource = "=3.0.11"
 # in-app downloader, then the app runs fully offline.
 [package.metadata.packager]
 product-name = "voice mail"
-version = "0.1.0"
+version = "1.0.1"
 identifier = "com.presentvoice.app"
 description = "Batch transcribe + summarize lectures. Works fully offline after models."
 category = "Productivity"

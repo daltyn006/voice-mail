@@ -72,6 +72,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/llama.cpp/CMakeLists.txt")
     message(STATUS "present_core: llama.cpp backend ON")
     target_compile_definitions(present_core PRIVATE PV_HAVE_LLAMA=1)
     # BEFORE the subtree: opts llama's own CMake reads at configure time.
+    # BOTH Vulkan switches must be forced here — llama's bundled ggml reads
+    # GGML_VULKAN (not LLAMA_VULKAN) when deciding to descend into
+    # ggml-vulkan, whose non-optional find_package(Vulkan) fatally aborts
+    # configure on SDK-less machines. Forcing GGML_VULKAN only in the
+    # whisper branch below comes too late (release CI failure 2026-10).
+    set(LLAMA_VULKAN ${_PV_VULKAN} CACHE BOOL "" FORCE)
+    set(GGML_VULKAN ${_PV_VULKAN} CACHE BOOL "" FORCE)
     # MTMD builds standalone (no common/tools) via its own gate.
     set(LLAMA_BUILD_MTMD ON CACHE BOOL "" FORCE)
     add_subdirectory(thirdparty/llama.cpp EXCLUDE_FROM_ALL)
@@ -95,6 +102,7 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/whisper.cpp/CMakeLists.txt")
     message(STATUS "present_core: whisper.cpp backend ON")
     target_compile_definitions(present_core PRIVATE PV_HAVE_WHISPER=1)
+    add_subdirectory(thirdparty/whisper.cpp EXCLUDE_FROM_ALL)
     add_subdirectory(thirdparty/whisper.cpp EXCLUDE_FROM_ALL)
     target_link_libraries(present_core PRIVATE whisper)
 else()

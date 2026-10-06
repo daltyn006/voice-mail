@@ -810,12 +810,17 @@ impl Store {
         if !self.boot_verified {
             let (vstt, vllm, vw) = pv_backend::verify::verify_active_boot();
             for w in vw {
-                self.push_error("Models", w.clone(), String::new());
+                // Advisory findings (unpinned size-only, linked Ollama,
+                // community sidecar) are status-line notes — never Error
+                // Center entries. Only real problems (missing/corrupt) err.
+                if !w.advisory {
+                    self.push_error("Models", w.text.clone(), String::new());
+                }
                 if self.status.starts_with("Ready")
                     || self.status.starts_with("Loading models")
                     || self.status.is_empty()
                 {
-                    self.status = w;
+                    self.status = w.text;
                 }
             }
             // Persist any fallback the verifier selected (it already chose the
@@ -1607,7 +1612,13 @@ impl Store {
                     return;
                 }
                 for w in warnings {
-                    self.push_error("Models", w, String::new());
+                    if w.advisory {
+                        if self.status.starts_with("Verifying models") {
+                            self.status = w.text;
+                        }
+                    } else {
+                        self.push_error("Models", w.text, String::new());
+                    }
                 }
             }
             Event::UpdateCheck { message } => {
@@ -2213,7 +2224,10 @@ impl Store {
                         }
                         w
                     }
-                    Err(_) => vec!["Model verification crashed — run unvalidated.".to_string()],
+                    Err(_) => vec![pv_backend::verify::BootWarning {
+                        advisory: false,
+                        text: "Model verification crashed — run unvalidated.".to_string(),
+                    }],
                 };
                 let _ = tx.send(Event::BootVerified { warnings });
             })

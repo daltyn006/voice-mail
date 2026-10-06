@@ -5,6 +5,7 @@
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::progress::Progress;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, App, Context, Entity, FontWeight, IntoElement, Render, Window};
@@ -147,7 +148,15 @@ impl Render for WizardView {
                     }),
                 ),
         );
-        body.into_any_element()
+        // The wizard takes the whole window (never trapped inside the page
+        // slot), so it owns its scroll box: small windows scroll both axes
+        // instead of clipping the tier/download/continue controls.
+        div()
+            .size_full()
+            .overflow_scrollbar()
+            .id("wizard-scroll")
+            .child(body)
+            .into_any_element()
     }
 }
 

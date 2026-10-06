@@ -118,9 +118,10 @@ impl RootView {
     /// containers (`input-scroll`, `settings-scroll`, …): a single scroller
     /// per page, so wheel events always reach the element that can move.
     /// (A scrollable wrapper here would sit under the cursor and eat the
-    /// wheel while having nothing to scroll.) `min_w(0)` + clipped
-    /// horizontal overflow keep narrow windows to a single column instead
-    /// of clipping content.
+    /// wheel while having nothing to scroll.) `min_w(0)` keeps narrow
+    /// windows to a single column; both scroll axes live on the page
+    /// scroller itself (never clip here — clipped content with no scroller
+    /// above it is unreachable).
     fn body_slot(body: gpui_kit::AnyElement) -> Div {
         // `min_h(0)` is load-bearing: a flex item's automatic minimum height
         // is its content height, so without it this slot (and the window)
@@ -136,7 +137,6 @@ impl RootView {
                 .min_h(px(0.0))
                 .p_4()
                 .h_full()
-                .overflow_x_hidden()
                 .child(body),
         )
     }
@@ -228,9 +228,14 @@ impl Render for RootView {
             // scrollers resolve their height through this wrapper. An
             // unsized wrapper breaks that chain (inner scrollers go
             // unbounded, swallow wheel events, and the page never scrolls).
+            // `min_h(0)`/`min_w(0)` are load-bearing here too: without them
+            // this wrapper sizes to its content, the inner scroller never
+            // overflows, and no scrollbar appears on small windows.
             div()
                 .w_full()
                 .h_full()
+                .min_w(px(0.0))
+                .min_h(px(0.0))
                 .child(body)
                 .with_animation(
                     ("page-swipe", nav_seq),

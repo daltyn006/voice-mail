@@ -338,6 +338,9 @@ ok(!src('app/src/views_output.rs').includes('this.read(cx)'), 'no self-entity re
 ok(src('app/src/views_output.rs').includes('build_editors') && !src('app/src/views_output.rs').includes('sync_editors'), 'editors built in event handlers only');
 ok(src('app/src/views_settings.rs').includes('settings-scroll'), 'settings page scrolls to fit window');
 ok(src('app/src/views_input.rs').includes('input-scroll') && src('app/src/views_models.rs').includes('models-scroll') && src('app/src/views_output.rs').includes('output-scroll'), 'input/models/output pages scroll inside the bounded viewport');ok(!src('app/src/views_output.rs').includes('px(560.)'), 'no fixed pixel heights in page scroll containers');
+ok(src('app/src/views_wizard.rs').includes('wizard-scroll') && src('app/src/views_output.rs').includes('review-scroll') && src('app/src/views_input.rs').includes('error-scroll'), 'wizard + review + error list own scroll boxes (no unreachable screens)');
+ok(src('app/src/views_input.rs').includes('spawn_file_pick') && src('app/src/views_settings.rs').includes('spawn_folder_pick') && src('app/src/views_input.rs').includes('background_executor'), 'native file dialogs run off the UI thread (no RefCell re-entrancy)');
+ok(src('pv-backend/src/verify.rs').includes('pub advisory') && src('app/src/store.rs').includes('w.advisory'), 'unpinned/linked model notices stay out of the Error Center');
 ok(src('app/src/views.rs').includes('size_full') && src('app/src/views.rs').includes('overflow_hidden') == false, 'root bounds the viewport; child pages own their scroll containers');
 ok(src('app/src/main.rs').includes('window_min_size'), 'window collapses to title-bar size by design');
 ok((src('pv-backend/src/record.rs').includes('bits_per_sample: 24') || src('pv-backend/src/record.rs').includes('Rf64Writer')) && src('pv-backend/src/rf64.rs').includes('w16(&mut h, 24)'), 'record takes are 24-bit WAV (RF64)');
