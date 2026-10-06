@@ -54,7 +54,26 @@ function Invoke-Probe {
 Ensure-WingetPackage 'Microsoft.VisualStudio.2022.BuildTools' '--override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"'
 Ensure-WingetPackage 'Kitware.CMake'
 Ensure-WingetPackage 'Rustlang.Rustup'
-Ensure-WingetPackage 'KhronosGroup.VulkanSDK'
+
+# GPU vendor identity (also used by build.ps1; env override wins for
+# foreign-system builds): NONE = Intel-only / headless / unknown.
+# Nothing GPU-related installs unless the box reports AMD/NVIDIA.
+function Get-GpuVendor {
+  $ov = [Environment]::GetEnvironmentVariable('PV_GPU_VENDOR')
+  if ($ov -and @('NONE', 'AMD', 'NVIDIA') -contains $ov.ToUpper()) { return $ov.ToUpper() }
+  $names = (Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ' '
+  $smiOk = Invoke-Probe { nvidia-smi -L >$null 2>&1 }
+  if ($smiOk -or ($names -match 'NVIDIA')) { return 'NVIDIA' }
+  if ($names -match 'AMD|Radeon') { return 'AMD' }
+  return 'NONE'
+}
+$gpuVendor = Get-GpuVendor
+Write-Host "GPU vendor: $gpuVendor"
+if ($gpuVendor -ne 'NONE') {
+  Ensure-WingetPackage 'KhronosGroup.VulkanSDK'
+} else {
+  Write-Host 'No AMD/NVIDIA GPU detected: skipping Vulkan SDK (CPU-only box). Set PV_GPU_VENDOR=AMD|NVIDIA to override.'
+}
 Ensure-WingetPackage 'Gyan.FFmpeg'
 
 # rustup default stable — idempotent
@@ -79,9 +98,10 @@ function Expand-BackendZip {
 }
 
 # Fetch one C++ backend source tree so core builds with the real backend.
-# Order: existing dir > git submodule > codeload zip (CDN; sometimes works
-# when git:443 doesn't) > $EnvZip override (local zip or extracted dir —
-# the sneakernet path: copy once, setup lays it out) > manual-drop message.
+# Order: existing dir > registered submodule init > submodule add -f >
+# codeload zip (CDN; sometimes works when git:443 doesn't) > $EnvZip
+# override (local zip or extracted dir — the sneakernet path: copy once,
+# setup lays it out) > manual-drop message.
 function Ensure-BackendSource {
   param([string]$Name, [string]$GitUrl, [string]$ZipUrl, [string]$Target, [string]$EnvZip)
   $marker = Join-Path $Target 'CMakeLists.txt'
@@ -103,9 +123,14 @@ function Ensure-BackendSource {
       }
     }
   }
-  if (Invoke-Probe { git submodule add $GitUrl $Target }) {
+  if (Invoke-Probe { git submodule update --init --recursive -- $Target }) {
+    if (Test-Path $marker) { Write-Host "$Name submodule ready."; return }
+  }
+  # Registered in .gitmodules but the local path was never added (or was
+  # cloned by hand): -f overrides the ignore rules that blocked plain add.
+  if (Invoke-Probe { git submodule add -f $GitUrl $Target }) {
     if (Invoke-Probe { git submodule update --init --recursive -- $Target }) {
-      if (Test-Path $marker) { Write-Host "$Name submodule ready."; return }
+      if (Test-Path $marker) { Write-Host "$Name submodule added."; return }
     }
   } else {
     Write-Host "$Name submodule add failed, trying zip fallback..."
@@ -113,6 +138,11 @@ function Ensure-BackendSource {
   try {
     $tmp = Join-Path $env:TEMP "$Name-src.zip"
     Invoke-WebRequest $ZipUrl -OutFile $tmp -ErrorAction Stop
+    # A failed clone may have left a half-populated (locked .git) dir behind;
+    # clear it first or the copy dies with "Access is denied".
+    if ((Test-Path $Target) -and -not (Test-Path $marker)) {
+      Remove-Item $Target -Recurse -Force -ErrorAction Stop
+    }
     if (Expand-BackendZip -Zip $tmp -Target $Target -Name $Name) {
       Write-Host "$Name fetched via zip fallback."
       return
@@ -122,8 +152,8 @@ function Ensure-BackendSource {
   }
   Write-Warning "$Name source missing: real transcription needs it. Copy the repo so that $marker exists (or set $EnvZip to a local zip/dir), then re-run setup."
 }
-Ensure-BackendSource -Name 'whisper.cpp' -GitUrl 'https://github.com/ggerganov/whisper.cpp' -ZipUrl 'https://codeload.github.com/ggerganov/whisper.cpp/zip/refs/heads/master' -Target 'core/thirdparty/whisper.cpp' -EnvZip 'PV_WHISPER_ZIP'
-Ensure-BackendSource -Name 'llama.cpp' -GitUrl 'https://github.com/ggerganov/llama.cpp' -ZipUrl 'https://codeload.github.com/ggerganov/llama.cpp/zip/refs/heads/master' -Target 'core/thirdparty/llama.cpp' -EnvZip 'PV_LLAMA_ZIP'
+Ensure-BackendSource -Name 'whisper.cpp' -GitUrl 'https://github.com/ggml-org/whisper.cpp' -ZipUrl 'https://codeload.github.com/ggml-org/whisper.cpp/zip/refs/heads/master' -Target 'core/thirdparty/whisper.cpp' -EnvZip 'PV_WHISPER_ZIP'
+Ensure-BackendSource -Name 'llama.cpp' -GitUrl 'https://github.com/ggml-org/llama.cpp' -ZipUrl 'https://codeload.github.com/ggml-org/llama.cpp/zip/refs/heads/master' -Target 'core/thirdparty/llama.cpp' -EnvZip 'PV_LLAMA_ZIP'
 
 # sqlite amalgamation (~1 file, keeps DB with zero new deps) — idempotent
 New-Item -ItemType Directory -Force core/thirdparty/sqlite | Out-Null

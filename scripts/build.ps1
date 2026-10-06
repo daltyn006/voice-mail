@@ -48,20 +48,71 @@ if (-not (Test-Path core/thirdparty/whisper.cpp/CMakeLists.txt)) {
 if (-not (Test-Path core/thirdparty/llama.cpp/CMakeLists.txt)) {
   Write-Warning 'llama.cpp submodule missing: building with MOCK LLM (re-run with -Setup for real summaries).'
 }
+# GPU vendor identity: NONE = Intel-only / headless / unknown (CPU build,
+# SDK never required). NVIDIA needs a healthy nvidia-smi (driver present);
+# AMD keys off the display adapter name. Env wins for foreign-system builds:
+# PV_GPU_VENDOR=NONE|AMD|NVIDIA forces the vendor, PV_VULKAN_SDK points at
+# an SDK dir directly. Nothing GPU-related installs here — setup owns that.
+function Get-GpuVendor {
+  $ov = [Environment]::GetEnvironmentVariable('PV_GPU_VENDOR')
+  if ($ov -and @('NONE', 'AMD', 'NVIDIA') -contains $ov.ToUpper()) { return $ov.ToUpper() }
+  $names = (Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ' '
+  $prevNative = $PSNativeCommandUseErrorActionPreference
+  $PSNativeCommandUseErrorActionPreference = $false
+  try {
+    & nvidia-smi -L 2>$null | Out-Null
+    $smiOk = ($LASTEXITCODE -eq 0)
+  } finally {
+    $PSNativeCommandUseErrorActionPreference = $prevNative
+  }
+  if ($smiOk -or ($names -match 'NVIDIA')) { return 'NVIDIA' }
+  if ($names -match 'AMD|Radeon') { return 'AMD' }
+  return 'NONE'
+}
+$gpuVendor = Get-GpuVendor
+Write-Host "GPU vendor: $gpuVendor"
 if (Get-Command cmake -ErrorAction SilentlyContinue) {
-  # Vulkan SDK installers set machine-wide VULKAN_SDK, but this process may
-  # predate it — resolve fresh (machine env, then default location) and
-  # export for the cmake child so FindVulkan succeeds in-process.
-  # core/CMakeLists decides GPU vs CPU from what it actually finds.
-  $vulkanSdk = [Environment]::GetEnvironmentVariable('VULKAN_SDK', 'Machine')
+  # Toolchain probe (cmake alone is not enough): -A x64 needs the Visual
+  # Studio generator, and any generator needs a C/C++ compiler. Probe first
+  # and skip cleanly instead of dying on a raw NativeCommandExitException.
+  $hasVs = $false
+  $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+  if (Test-Path $vswhere) {
+    $vsPath = & $vswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools -property installationPath 2>$null | Select-Object -First 1
+    if ($vsPath) { $hasVs = $true }
+  }
+  if (-not $hasVs -and (Get-Command cl.exe -ErrorAction SilentlyContinue)) { $hasVs = $true }
+  $hasNinjaCc = ($null -ne (Get-Command ninja -ErrorAction SilentlyContinue)) -and (
+    (Get-Command clang.exe -ErrorAction SilentlyContinue) -or
+    (Get-Command gcc.exe -ErrorAction SilentlyContinue) -or
+    (Get-Command cl.exe -ErrorAction SilentlyContinue))
+  # Vulkan SDK: explicit override first, then machine env, then default
+  # location. Absent SDK is fine — core/CMakeLists builds CPU-only.
+  $vulkanSdk = [Environment]::GetEnvironmentVariable('PV_VULKAN_SDK')
+  if (-not $vulkanSdk) { $vulkanSdk = [Environment]::GetEnvironmentVariable('VULKAN_SDK', 'Machine') }
   if (-not $vulkanSdk) {
     $vkRoot = Get-ChildItem 'C:\VulkanSDK' -Directory -ErrorAction SilentlyContinue |
       Sort-Object Name -Descending | Select-Object -First 1
     if ($vkRoot) { $vulkanSdk = $vkRoot.FullName }
   }
   if ($vulkanSdk -and (Test-Path $vulkanSdk)) { $env:VULKAN_SDK = $vulkanSdk }
-  cmake -S . -B core/build -A x64
-  cmake --build core/build --config Release
+  if ($Dev -and (Test-Path core/build/CMakeCache.txt)) {
+    # Dev builds start zeroed: drop the configure cache so GPU/CPU selection
+    # re-detects every time instead of sticking. Objects stay — only the
+    # selection re-evaluates (a backend switch still recompiles ggml).
+    Remove-Item core/build/CMakeCache.txt -Force
+    Write-Host 'Dev build: dropped CMakeCache.txt (GPU selection re-detects).'
+  }
+  if ($hasVs) {
+    cmake -S . -B core/build -A x64 "-DPV_GPU_VENDOR=$gpuVendor"
+    cmake --build core/build --config Release
+  } elseif ($hasNinjaCc) {
+    Write-Warning 'no MSVC toolchain found; trying Ninja fallback (supported path is VS Build Tools via -Setup).'
+    cmake -S . -B core/build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DPV_GPU_VENDOR=$gpuVendor"
+    cmake --build core/build
+  } else {
+    Write-Warning 'no C/C++ toolchain found (no VS with VC.Tools, no cl.exe, no ninja+compiler): skipping core DLL build — run `pwsh scripts/build.ps1 -Setup`, reopen the terminal, and rebuild. GUI will run with mock backends.'
+  }
 } else {
   Write-Warning 'cmake not found; skipping core DLL build. GUI will run with mock backends.'
 }

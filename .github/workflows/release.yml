@@ -83,8 +83,10 @@ jobs:
         shell: pwsh
 
       - name: Build core DLL
+        # No -D Vulkan flags: core/CMakeLists detects vendor + SDK itself
+        # (GPU-less CI runners correctly land CPU-only).
         run: |
-          cmake -S . -B core/build -A x64 -DGGML_VULKAN=ON -DLLAMA_VULKAN=ON
+          cmake -S . -B core/build -A x64
           cmake --build core/build --config Release
         shell: pwsh
 
