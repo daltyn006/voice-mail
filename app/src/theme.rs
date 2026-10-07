@@ -409,7 +409,9 @@ pub fn apply_theme(theme_mode: &str, high_contrast: bool, cx: &mut App) {
     colors.switch = border;
     colors.switch_thumb = fg;
     colors.skeleton = border;
-    colors.tiles = surface;
+    // NOTE: kit 0.6.1 had a `tiles` token for its Tile widget; 0.6.6
+    // removed both. App tiles/cards are plain bordered Divs (theme::card),
+    // so nothing needs a replacement here.
     colors.group_box = surface;
     colors.group_box_foreground = fg;
     colors.accordion = fg;
