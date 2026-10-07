@@ -266,6 +266,7 @@ ok(src('core/src/audio_audacity.cpp').includes('render_audacity_to_wav') && src(
 ok(src('core/CMakeLists.txt').includes('audio_audacity.cpp'), 'project importer compiled into the core DLL');
 ok(existsSync('.gitmodules') && src('.gitmodules').includes('core/thirdparty/whisper.cpp') && src('.gitmodules').includes('https://github.com/ggml-org/llama.cpp'), 'submodules registered on canonical ggml-org remotes (pins live in the gitlinks)');
 ok(src('scripts/setup-windows.ps1').includes('submodule add -f') && src('scripts/setup-windows.ps1').includes('PV_GPU_VENDOR'), 'setup registers submodules and gates Vulkan SDK on vendor');
+ok(src('scripts/build.ps1').includes('Get-Command nvidia-smi') && src('scripts/build.ps1').includes('Get-Command amd-smi'), 'vendor probe guards SMI tools by existence (missing exe never throws)');
 ok(src('app/src/store.rs').includes('PROJECT_EXTS') && src('app/src/views_input.rs').includes('PROJECT_EXTS'), 'project files stage as audio from picker + gate');
 ok(src('pv-backend/src/share.rs').includes('reveal_in_folder') && src('pv-backend/src/share.rs').includes('copy_text'), 'reveal-in-folder + clipboard live in a per-OS backend module');
 ok(src('app/src/views_input.rs').includes('warn-{site}-') && src('app/src/views_input.rs').includes('warn-banner-') && src('app/src/views_input.rs').includes('warn_button("row"'), 'warning badges carry per-site id prefixes (duplicate GPUI element ids panic the a11y tree)');

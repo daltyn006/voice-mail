@@ -50,23 +50,36 @@ if (-not (Test-Path core/thirdparty/llama.cpp/CMakeLists.txt)) {
 }
 # GPU vendor identity: NONE = Intel-only / headless / unknown (CPU build,
 # SDK never required). NVIDIA needs a healthy nvidia-smi (driver present);
-# AMD keys off the display adapter name. Env wins for foreign-system builds:
+# AMD keys off the display adapter name, with amd-smi as a forward-compat
+# second signal (no official Windows amd-smi exists yet, so CIM stays
+# authoritative). Env wins for foreign-system builds:
 # PV_GPU_VENDOR=NONE|AMD|NVIDIA forces the vendor, PV_VULKAN_SDK points at
 # an SDK dir directly. Nothing GPU-related installs here — setup owns that.
 function Get-GpuVendor {
   $ov = [Environment]::GetEnvironmentVariable('PV_GPU_VENDOR')
   if ($ov -and @('NONE', 'AMD', 'NVIDIA') -contains $ov.ToUpper()) { return $ov.ToUpper() }
   $names = (Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ' '
+  # Existence-guard every CLI probe: a missing exe throws CommandNotFound
+  # (governed by $ErrorActionPreference, NOT by the native-error preference),
+  # so never invoke without Get-Command resolving first.
   $prevNative = $PSNativeCommandUseErrorActionPreference
   $PSNativeCommandUseErrorActionPreference = $false
   try {
-    & nvidia-smi -L 2>$null | Out-Null
-    $smiOk = ($LASTEXITCODE -eq 0)
+    $smiOk = $false
+    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+      & nvidia-smi -L 2>$null | Out-Null
+      $smiOk = ($LASTEXITCODE -eq 0)
+    }
+    $amdSmiOk = $false
+    if (Get-Command amd-smi -ErrorAction SilentlyContinue) {
+      & amd-smi list 2>$null | Out-Null
+      $amdSmiOk = ($LASTEXITCODE -eq 0)
+    }
   } finally {
     $PSNativeCommandUseErrorActionPreference = $prevNative
   }
   if ($smiOk -or ($names -match 'NVIDIA')) { return 'NVIDIA' }
-  if ($names -match 'AMD|Radeon') { return 'AMD' }
+  if ($amdSmiOk -or ($names -match 'AMD|Radeon')) { return 'AMD' }
   return 'NONE'
 }
 $gpuVendor = Get-GpuVendor

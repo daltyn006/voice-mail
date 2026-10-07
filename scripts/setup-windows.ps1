@@ -38,6 +38,10 @@ function Ensure-WingetPackage {
 # Run a native command whose failure is routine, not fatal: returns $true on
 # exit 0 without tripping $PSNativeCommandUseErrorActionPreference.
 # (A bare `cmd 2>$null; if ($LASTEXITCODE …)` still throws under Stop.)
+# The catch also swallows CommandNotFound (missing exe): that error answers
+# to $ErrorActionPreference, not the native-error preference, so without
+# this a probe for an absent tool (nvidia-smi on Intel-only boxes) escapes
+# as a throw instead of returning $false.
 # Output streams through so long fetches don't look hung.
 function Invoke-Probe {
   param([scriptblock]$Command)
@@ -46,6 +50,8 @@ function Invoke-Probe {
   try {
     & $Command
     return $LASTEXITCODE -eq 0
+  } catch {
+    return $false
   } finally {
     $PSNativeCommandUseErrorActionPreference = $prevNative
   }
@@ -63,8 +69,9 @@ function Get-GpuVendor {
   if ($ov -and @('NONE', 'AMD', 'NVIDIA') -contains $ov.ToUpper()) { return $ov.ToUpper() }
   $names = (Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ' '
   $smiOk = Invoke-Probe { nvidia-smi -L >$null 2>&1 }
+  $amdSmiOk = Invoke-Probe { amd-smi list >$null 2>&1 }
   if ($smiOk -or ($names -match 'NVIDIA')) { return 'NVIDIA' }
-  if ($names -match 'AMD|Radeon') { return 'AMD' }
+  if ($amdSmiOk -or ($names -match 'AMD|Radeon')) { return 'AMD' }
   return 'NONE'
 }
 $gpuVendor = Get-GpuVendor

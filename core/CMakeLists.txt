@@ -37,6 +37,9 @@ if(PV_GPU_VENDOR STREQUAL "NONE")
   message(STATUS "present_core: vendor NONE (Intel-only/headless) -> CPU-only backends")
 elseif(PV_GPU_VENDOR STREQUAL "NVIDIA")
   find_program(_PV_SMI nvidia-smi)
+  # Initialized: the health check below must never read an unset var when
+  # the tool is absent (relies on empty-string numeric conversion today).
+  set(_PV_SMI_RC 1)
   if(_PV_SMI)
     execute_process(COMMAND ${_PV_SMI} -L RESULT_VARIABLE _PV_SMI_RC OUTPUT_QUIET ERROR_QUIET)
   endif()
