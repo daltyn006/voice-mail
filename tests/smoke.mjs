@@ -231,6 +231,12 @@ for (const f of ['views_input.rs','views_record.rs','views_output.rs','views_mod
 ok(src('app/src/theme.rs').includes('gruvbox_dark') && src('app/src/theme.rs').includes('coffee_light'), 'gruvbox + coffee appearances exist');
 ok(src('app/src/theme.rs').includes('high_contrast') && src('pv-backend/src/prefs.rs').includes('high_contrast'), 'high-contrast overlay persisted');
 ok(src('app/src/theme.rs').includes('ScrollbarMode::Always'), 'scrollbars stay visible on overflow');
+// Both-axis Scrollables (row-direction area) never engage vertical
+// scrolling in this kit version — pages must use single-axis scrollers
+// (vertical page boxes; horizontal only for fixed-content strips).
+for (const f of ['views_input.rs','views_models.rs','views_output.rs','views_record.rs','views_settings.rs','views_wizard.rs']) {
+  ok(!src(`app/src/${f}`).includes('.overflow_scrollbar('), `${f}: no Both-axis scroller (use overflow_y/x_scrollbar)`);
+}
 ok(src('app/src/views.rs').includes('flex_shrink_0'), 'sidebar keeps its natural width (no overhang)');
 ok(existsSync('LICENSE') && src('LICENSE').includes('MIT License'), 'MIT LICENSE present');
 ok(src('README.md').includes('AI assistance disclosure'), 'README discloses AI assistance');
@@ -255,8 +261,8 @@ ok(!src('app/src/views.rs').includes('nav_button'), 'button-bar nav retired');
 // --- 5f. Custom model path ---
 ok(src('pv-backend/src/dirs.rs').includes('MODELS_OVERRIDE'), 'models-dir override exists');
 ok(src('app/src/views_settings.rs').includes('models-browse'), 'Browse option in Settings page');
-  ok(src('app/src/views_models.rs').includes('Set as Transcribing'), 'STT toggle button in Models page');
-  ok(src('app/src/views_models.rs').includes('Set as Summarizing'), 'LLM toggle button in Models page');
+  ok(src('app/src/views_models.rs').includes('"Set STT"'), 'STT toggle button in Models page');
+  ok(src('app/src/views_models.rs').includes('"Set LLM"'), 'LLM toggle button in Models page');
   ok(src('app/src/views_models.rs').includes('h_flex'), 'models page uses side-by-side columns');
   ok(src('app/src/views_models.rs').includes('CPU only'), 'compute mode selector in Models page');
   ok(src('app/src/store.rs').includes('compute_mode') && src('pv-backend/src/prefs.rs').includes('compute_mode'), 'compute mode persisted');

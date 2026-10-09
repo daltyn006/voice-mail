@@ -4356,7 +4356,7 @@ fn sidecar_int(text: &str, key: &str) -> Option<i64> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -4751,12 +4751,12 @@ mod tests {
 
     /// Serializes tests that rewrite the live manifest (activation paths).
     /// Without this, parallel tests observe each other's mid-test actives.
-    static MANIFEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    pub(crate) static MANIFEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Serializes tests that save prefs (compute toggle, dismiss, etc.).
     /// save_prefs targets the live ui.json; without this, parallel tests
     /// overwrite each other's file mid-assertion (same race as manifests).
-    static PREFS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    pub(crate) static PREFS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Backup/restore guard for the LIVE manifest: tier activation writes
     /// through to disk, so tests that trigger it must leave the user's
