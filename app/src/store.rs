@@ -4432,6 +4432,91 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Native dialogs must never execute on the UI thread: `rfd` pumps a
+    /// nested message loop while open, and a UI-thread dialog lets
+    /// background timers re-enter the app borrow (`RefCell already
+    /// borrowed`, see crash.log). The headless executor runs worker tasks
+    /// on the test thread, so thread ids can't prove the hop here —
+    /// instead the ordering log proves the dialog runs ASYNCHRONOUSLY
+    /// (after `spawn_file_pick` returns, never inline inside the UI
+    /// borrow). In production the hop lands on a real worker pool (the
+    /// `Send + 'static` bound on `pick` is compile-enforced).
+    #[test]
+    fn file_pick_runs_async_never_inline_and_stages() {
+        use gpui_kit::TestApp;
+        use std::sync::{Arc, Mutex};
+        let _plock = PREFS_LOCK.lock().unwrap();
+        let _prefs = hermetic_prefs(r#"{}"#);
+        let mut t = TestApp::new();
+        let store = t.new_entity(|_| Store::new());
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let pick_log = log.clone();
+        let ret_log = log.clone();
+        t.update(|cx| {
+            crate::views_input::spawn_file_pick(
+                store.clone(),
+                move || {
+                    pick_log.lock().unwrap().push("pick-ran");
+                    Some(vec![PathBuf::from("picked-dialog.wav")])
+                },
+                cx,
+            );
+            // Still inside the UI borrow: an inlined dialog would already
+            // have run (and, in production, panicked the borrow).
+            ret_log.lock().unwrap().push("spawn-returned");
+        });
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["spawn-returned", "pick-ran"],
+            "dialog must run after spawn_file_pick returns (async worker), never inline"
+        );
+        let (staged, errors) =
+            t.read_entity(&store, |s, _| (s.input.len(), s.errors.len()));
+        assert_eq!(staged, 1, "picked file must land in the staging queue");
+        assert_eq!(errors, 0, "a clean pick must not file errors");
+    }
+
+    /// Same async-not-inline guarantee for folder pickers (Settings browses
+    /// share the crash class): the stub dialog runs after return, the stub
+    /// apply lands back on the UI thread.
+    #[test]
+    fn folder_pick_runs_async_never_inline_and_applies() {
+        use gpui_kit::TestApp;
+        use std::sync::{Arc, Mutex};
+        fn apply(store: gpui_kit::Entity<Store>, p: String, cx: &mut gpui_kit::App) {
+            store.update(cx, |s, cx| {
+                s.status = format!("picked {p}");
+                cx.notify();
+            });
+        }
+        let _plock = PREFS_LOCK.lock().unwrap();
+        let _prefs = hermetic_prefs(r#"{}"#);
+        let mut t = TestApp::new();
+        let store = t.new_entity(|_| Store::new());
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let pick_log = log.clone();
+        let ret_log = log.clone();
+        t.update(|cx| {
+            crate::views_settings::spawn_folder_pick_with(
+                store.clone(),
+                move || {
+                    pick_log.lock().unwrap().push("pick-ran");
+                    Some(PathBuf::from("picked-dir"))
+                },
+                apply,
+                cx,
+            );
+            ret_log.lock().unwrap().push("spawn-returned");
+        });
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["spawn-returned", "pick-ran"],
+            "dialog must run after spawn_folder_pick returns (async worker), never inline"
+        );
+        let status = t.read_entity(&store, |s, _| s.status.clone());
+        assert!(status.contains("picked-dir"), "apply must run on the UI thread");
+    }
+
     fn validating_store() -> Store {
         let mut s = Store::new();
         // Hermetic: live user prefs must never leak into expectations.
@@ -5669,3 +5754,4 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+

@@ -169,8 +169,25 @@ fn choice(
 /// Input's `spawn_file_pick`): the native dialog runs on a worker thread
 /// while the UI thread stays free, then `apply` runs back on the UI thread
 /// with the chosen path.
-fn spawn_folder_pick(
+pub(crate) fn spawn_folder_pick(
     store: Entity<Store>,
+    apply: fn(Entity<Store>, String, &mut App),
+    cx: &mut App,
+) {
+    spawn_folder_pick_with(
+        store,
+        || rfd::FileDialog::new().pick_folder(),
+        apply,
+        cx,
+    );
+}
+
+/// `spawn_folder_pick` with an injectable dialog (headless tests pass a
+/// stub; production passes the native picker). The off-thread shape is the
+/// crash fix — it must never be inlined back onto the UI thread.
+pub(crate) fn spawn_folder_pick_with(
+    store: Entity<Store>,
+    pick: impl FnOnce() -> Option<std::path::PathBuf> + Send + 'static,
     apply: fn(Entity<Store>, String, &mut App),
     cx: &mut App,
 ) {
@@ -178,7 +195,7 @@ fn spawn_folder_pick(
     cx.spawn(async move |cx| {
         let picked = cx
             .background_executor()
-            .spawn(async move { rfd::FileDialog::new().pick_folder() })
+            .spawn(async move { pick() })
             .await;
         crate::shutdown_trace("folder dialog closed");
         if let Some(p) = picked {
