@@ -1624,6 +1624,25 @@ impl Store {
             Event::UpdateCheck { message } => {
                 self.status = message;
             }
+            Event::UpdateInstalled { path } => {
+                // Verified bytes on disk. Launch FIRST (detached, elevated
+                // when needed) so a launch failure is a clean error below —
+                // only then flush state and exit for the installer, which
+                // cannot replace our running exe.
+                let path = std::path::PathBuf::from(&path);
+                let (program, args) = pv_backend::update::install_command(&path);
+                match pv_backend::update::launch_elevated(&program, &args) {
+                    Ok(()) => {
+                        self.status =
+                            "Update verified — installing, the app will close…".to_string();
+                        self.shutdown_prepare();
+                        std::process::exit(0);
+                    }
+                    Err(e) => {
+                        self.push_error("Settings", format!("Update install failed: {e}"), String::new());
+                    }
+                }
+            }
             Event::LinkVerified { id, ok, message } => {
                 // The worker already updated the manifest (verified flag or
                 // dropped record with cleared slots) — mirror it locally.
@@ -2256,6 +2275,82 @@ impl Store {
             .is_err()
         {
             return Err("Could not start update check.".to_string());
+        }
+        Ok(rx)
+    }
+
+    /// One-click update install (Settings → Diagnostics). Worker thread:
+    /// check feed → download installer → verify SHA-256 → report
+    /// `Event::UpdateInstalled` (the pump launches it elevated and exits)
+    /// or `Event::UpdateCheck` with the failure. User-initiated only —
+    /// no background polling, ever.
+    pub fn begin_update_install(&mut self) -> Result<Receiver<Event>, String> {
+        let (tx, rx): (Sender<Event>, Receiver<Event>) = std::sync::mpsc::channel();
+        self.status = "Checking for updates…".to_string();
+        if std::thread::Builder::new()
+            .name("pv-update-install".to_string())
+            .stack_size(8 << 20)
+            .spawn(move || {
+                let send_status = |m: String| {
+                    let _ = tx.send(Event::UpdateCheck { message: m });
+                };
+                let asset = match pv_backend::update::fetch_update() {
+                    Ok(None) => {
+                        send_status("Up to date.".to_string());
+                        return;
+                    }
+                    Ok(Some(a)) => a,
+                    Err(e) => {
+                        send_status(e);
+                        return;
+                    }
+                };
+                let Some(sums_url) = asset.sums_url.clone() else {
+                    send_status(
+                        "Release has no SHA256SUMS — refusing to install unverified bytes."
+                            .to_string(),
+                    );
+                    return;
+                };
+                send_status(format!("Downloading {}…", asset.name));
+                let data =
+                    match pv_backend::update::download_bytes(&asset.url, pv_backend::update::MAX_INSTALLER_BYTES) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            send_status(e);
+                            return;
+                        }
+                    };
+                send_status(format!(
+                    "Downloaded {:.1} MB — verifying…",
+                    data.len() as f64 / 1048576.0
+                ));
+                let sums = match pv_backend::update::fetch_text(&sums_url) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        send_status(e);
+                        return;
+                    }
+                };
+                if let Err(e) =
+                    pv_backend::update::verify_against_sums(&data, &sums, &asset.name)
+                {
+                    send_status(e);
+                    return;
+                }
+                let dest = pv_backend::update::staging_path(&asset.name);
+                if let Err(e) = std::fs::write(&dest, &data) {
+                    send_status(format!("Could not stage installer: {e}"));
+                    return;
+                }
+                send_status("Update verified — installing…".to_string());
+                let _ = tx.send(Event::UpdateInstalled {
+                    path: dest.to_string_lossy().into_owned(),
+                });
+            })
+            .is_err()
+        {
+            return Err("Could not start update install.".to_string());
         }
         Ok(rx)
     }

@@ -936,6 +936,28 @@ impl Render for SettingsView {
                             }),
                     )
                     .child(
+                        Button::new("install-update")
+                            .label("Install update")
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .on_click({
+                                let store = store.clone();
+                                move |_, _, cx| {
+                                    let rx = match store.update(cx, |s, _| s.begin_update_install()) {
+                                        Ok(rx) => rx,
+                                        Err(e) => {
+                                            store.update(cx, |s, cx| {
+                                                s.push_error("Settings", e, String::new());
+                                                cx.notify();
+                                            });
+                                            return;
+                                        }
+                                    };
+                                    crate::store::spawn_pump(store.clone(), rx, cx);
+                                    store.update(cx, |_, cx| cx.notify());
+                                }
+                            }),
+                    )
+                    .child(
                         Button::new("view-logs")
                             .label("View logs")
                             .font_weight(FontWeight::SEMIBOLD)

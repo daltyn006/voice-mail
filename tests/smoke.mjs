@@ -296,6 +296,9 @@ ok(src('app/src/store.rs').includes('spawn_boot_verify') && src('pv-backend/src/
 ok(src('app/src/store.rs').includes('restore_staged') && src('pv-backend/src/prefs.rs').includes('staged'), 'staged queue persists across restarts');
 ok(src('pv-backend/src/update.rs').includes('check_blocking') && src('app/src/views_settings.rs').includes('check-updates'), 'manual update check, user-initiated only');
 ok(src('pv-backend/src/update.rs').includes('pick_installer') && src('pv-backend/src/update.rs').includes('.msi'), 'update check points at the MSI installer asset');
+ok(src('pv-backend/src/update.rs').includes('verify_against_sums') && src('pv-backend/src/update.rs').includes('install_command'), 'one-click update verifies hashes and builds the installer command');
+ok(src('app/src/store.rs').includes('begin_update_install') && src('app/src/store.rs').includes('UpdateInstalled'), 'update install pumps through shutdown-then-exit');
+ok(src('app/src/views_settings.rs').includes('install-update'), 'Install update button in Settings Diagnostics');
 ok(!src('app/Cargo.toml').includes('upgrade-code ='), 'no upgrade-code field (cargo-packager 0.11 rejects it; the MSI upgrade code is tool-derived stable from the binary name)');
 ok(src('core/src/audio_ffmpeg.cpp').includes('qarg') && !src('core/src/audio_ffmpeg.cpp').includes('-i \\"'), 'ffmpeg spawn lines are quote-escaped (no raw -i interpolation)');
 ok(src('core/CMakeLists.txt').includes('set(GGML_VULKAN ${_PV_VULKAN} CACHE BOOL "" FORCE)') && src('core/CMakeLists.txt').includes('PV_GPU_VENDOR'), 'Vulkan flags forced from detection (stale -D can never wedge configure)');

@@ -84,11 +84,13 @@ if (-not $sumsUrl) { throw 'release has no SHA256SUMS asset — refusing to inst
 $sumsFile = Join-Path $OutDir 'SHA256SUMS'
 Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile
 $want = $null
+$leaf = [string]$asset.name
 foreach ($line in (Get-Content $sumsFile)) {
   $parts = ($line.Trim() -split '\s+', 2)
-  if ($parts.Count -eq 2 -and $parts[1].Trim() -eq [string]$asset.name) { $want = $parts[0].ToLower() }
+  # SHA256SUMS may list bare names or full paths — compare leaf names.
+  if ($parts.Count -eq 2 -and (Split-Path $parts[1].Trim() -Leaf) -eq $leaf) { $want = $parts[0].ToLower() }
 }
-if (-not $want) { throw "SHA256SUMS has no entry for $([string]$asset.name)" }
+if (-not $want) { throw "SHA256SUMS has no entry for $leaf" }
 $got = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
 if ($got -ne $want) { throw "SHA256 MISMATCH for $([string]$asset.name): got $got, want $want" }
 Write-Host 'SHA-256 verified.'
