@@ -359,6 +359,30 @@ mod tests {
     /// by both tests, never a per-test lock.
     static SCROLL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// RAII for the process-global models-dir override (+ its temp dir):
+    /// cleared/removed on drop, including panic unwinds, so a failing
+    /// test can't leak its dir into tests running after it. Declare AFTER
+    /// the locks above so the override clears while they are still held.
+    struct ModelsDirGuard {
+        dir: std::path::PathBuf,
+    }
+    impl ModelsDirGuard {
+        fn take(tag: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("vm-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            pv_backend::dirs::set_models_dir_override(dir.clone());
+            ModelsDirGuard { dir }
+        }
+    }
+    impl Drop for ModelsDirGuard {
+        fn drop(&mut self) {
+            pv_backend::dirs::clear_models_dir_override();
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
     /// Every full-screen surface owns exactly one scroll box: no
     /// unreachable screens (the small-window Settings trap), no duplicate
     /// scroller ids (duplicate GPUI element ids panic the a11y tree).
@@ -406,15 +430,19 @@ mod tests {
         // Store construction reads the live prefs file — share the store
         // tests' locks so manifest/prefs-guarded tests never interleave.
         // Order (PREFS before MANIFEST) matches the store suite convention.
-        let _scroll = SCROLL_LOCK.lock().unwrap();
-        let _plock = crate::store::tests::PREFS_LOCK.lock().unwrap();
-        let _mlock = crate::store::tests::MANIFEST_LOCK.lock().unwrap();
+        // Recover from poisoning (into_inner): hermetic guards restore
+        // state on unwind, so one failing test must not fail the rest.
+        let _scroll = SCROLL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _plock = crate::store::tests::PREFS_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _mlock = crate::store::tests::MANIFEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
         // Deterministic models dir (ambient downloads only add rows).
-        let dir = std::env::temp_dir().join(format!("vm-scroll-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        pv_backend::dirs::set_models_dir_override(dir.clone());
+        let _models = ModelsDirGuard::take("scroll");
+        let dir = _models.dir.clone();
 
         let pages: [(Page, &str); 5] = [
             (Page::Input, "input-scroll"),
@@ -629,8 +657,6 @@ mod tests {
                 });
             }
         }
-        pv_backend::dirs::clear_models_dir_override();
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Wizard owns its scroll box outside the page slot: same bounded +
@@ -641,15 +667,18 @@ mod tests {
         use gpui_kit::test::TestWindowExt;
         use gpui_kit::{point, size, AnyWindowHandle, InputEvent, MouseMoveEvent, ScrollDelta, ScrollWheelEvent};
 
-        // Shared scroll lock (see pages test) + store suite locks.
-        let _scroll = SCROLL_LOCK.lock().unwrap();
-        let _plock = crate::store::tests::PREFS_LOCK.lock().unwrap();
-        let _mlock = crate::store::tests::MANIFEST_LOCK.lock().unwrap();
+        // Shared scroll lock (see pages test) + store suite locks, with
+        // the same poison-recovery (one failing test must not fail rest).
+        let _scroll = SCROLL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _plock = crate::store::tests::PREFS_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _mlock = crate::store::tests::MANIFEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
-        let dir = std::env::temp_dir().join(format!("vm-scroll-wz-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        pv_backend::dirs::set_models_dir_override(dir.clone());
+        // Deterministic models dir (ambient downloads only add rows).
+        let _models = ModelsDirGuard::take("scroll-wz");
 
         cx.update(gpui_kit::init);
         cx.update(|cx| crate::theme::apply_theme("dark", false, cx));
@@ -750,7 +779,5 @@ mod tests {
                 .unwrap();
             });
         }
-        pv_backend::dirs::clear_models_dir_override();
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

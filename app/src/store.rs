@@ -4405,7 +4405,7 @@ pub(crate) mod tests {
 
     #[test]
     fn staged_queue_survives_restart_and_drops_missing() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = hermetic_prefs(r#"{"dark_mode":true}"#);
         let dir = std::env::temp_dir().join(format!("pv-staged-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -4445,7 +4445,7 @@ pub(crate) mod tests {
     fn file_pick_runs_async_never_inline_and_stages() {
         use gpui_kit::TestApp;
         use std::sync::{Arc, Mutex};
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = hermetic_prefs(r#"{}"#);
         let mut t = TestApp::new();
         let store = t.new_entity(|_| Store::new());
@@ -4489,7 +4489,7 @@ pub(crate) mod tests {
                 cx.notify();
             });
         }
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = hermetic_prefs(r#"{}"#);
         let mut t = TestApp::new();
         let store = t.new_entity(|_| Store::new());
@@ -4557,8 +4557,8 @@ pub(crate) mod tests {
 
     #[test]
     fn validate_stt_error_switches_cpu_and_rolls_back() {
-        let _env = ENV_LOCK.lock().unwrap();
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let mut s = validating_store();
         // Hermetic mode regardless of the user's live setting.
@@ -4583,7 +4583,7 @@ pub(crate) mod tests {
         // Test binaries have no models configured: seed an empty active
         // pair so continuation fails deterministically at resolution
         // (never hangs, never wedges). Serialized + restored like above.
-        let _lock = MANIFEST_LOCK.lock().unwrap();
+        let _lock = MANIFEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _manifest = ManifestGuard::take();
         let path = pv_backend::manifest::manifest_path(&pv_backend::dirs::models_dir());
         std::fs::write(&path, r#"{"files":{},"active_stt":"","active_llm":""}"#).unwrap();
@@ -4669,7 +4669,7 @@ pub(crate) mod tests {
 
     #[test]
     fn delete_converted_toggle_persists() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         std::fs::write(
             pv_backend::prefs::prefs_path(),
@@ -4686,8 +4686,8 @@ pub(crate) mod tests {
 
     #[test]
     fn compute_mode_persists_and_bridges_env() {
-        let _env = ENV_LOCK.lock().unwrap();
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         // Hermetic start regardless of ambient file state.
         std::fs::write(
@@ -4709,7 +4709,7 @@ pub(crate) mod tests {
 
     #[test]
     fn nav_mode_normalizes_and_persists() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         std::fs::write(
             pv_backend::prefs::prefs_path(),
@@ -4751,11 +4751,15 @@ pub(crate) mod tests {
 
     /// Serializes tests that rewrite the live manifest (activation paths).
     /// Without this, parallel tests observe each other's mid-test actives.
+    /// Acquisitions recover from poisoning (`into_inner`): a panicking test
+    /// must never take down the other 60 (hermetic guards restore state on
+    /// unwind, so recovery is safe and failures stay local).
     pub(crate) static MANIFEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Serializes tests that save prefs (compute toggle, dismiss, etc.).
     /// save_prefs targets the live ui.json; without this, parallel tests
     /// overwrite each other's file mid-assertion (same race as manifests).
+    /// Same poison-recovery rule as MANIFEST_LOCK above.
     pub(crate) static PREFS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Backup/restore guard for the LIVE manifest: tier activation writes
@@ -4815,7 +4819,7 @@ pub(crate) mod tests {
     #[test]
     fn completed_tier_becomes_default_when_idle() {
         // Serialized: activation rewrites the live manifest (guarded above).
-        let _lock = MANIFEST_LOCK.lock().unwrap();
+        let _lock = MANIFEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _manifest = ManifestGuard::take();
         let mut s = Store::new();
         seed_lite_pair(&mut s);
@@ -5081,7 +5085,7 @@ pub(crate) mod tests {
 
     #[test]
     fn retention_and_denoise_normalize_and_persist() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         assert_eq!(normalize_retention("delete"), "delete");
         assert_eq!(normalize_retention("archive"), "archive");
@@ -5104,7 +5108,7 @@ pub(crate) mod tests {
     fn attention_and_research_settings() {
         // Live prefs file: serialize + restore like every other prefs test
         // (parallel tests + ambient user state must never leak in).
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Hermetic start regardless of ambient file state (a leaked
         // web_research=true in the live ui.json failed this assert before).
         let _prefs = hermetic_prefs(
@@ -5396,7 +5400,7 @@ pub(crate) mod tests {
 
     #[test]
     fn save_rename_delete_roundtrip() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("srd");
         let id = seed_output(&mut s);
@@ -5419,7 +5423,7 @@ pub(crate) mod tests {
     /// retires too (never a ghost entry).
     #[test]
     fn pipeline_drill_progress_error_retry_done() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("drill");
         s.add_files(vec![PathBuf::from("a.wav")]);
@@ -5483,7 +5487,7 @@ pub(crate) mod tests {
 
     #[test]
     fn dismiss_hides_row_but_keeps_file() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("dismiss");
         let id = seed_output(&mut s);
@@ -5501,7 +5505,7 @@ pub(crate) mod tests {
 
     #[test]
     fn output_ops_follow_file_dir_not_current_dir() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir_a) = output_store("dira");
         let id = seed_output(&mut s);
@@ -5523,7 +5527,7 @@ pub(crate) mod tests {
 
     #[test]
     fn delete_missing_file_still_drops_row() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("ghost");
         let id = seed_output(&mut s);
@@ -5535,7 +5539,7 @@ pub(crate) mod tests {
 
     #[test]
     fn download_tier_queues_missing_pair_offline() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("tier");
         // Embedded catalog resolves; spawn succeeds offline (failure, if any,
@@ -5569,7 +5573,7 @@ pub(crate) mod tests {
 
     #[test]
     fn merge_select_toggle_and_group_dismiss_persists() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("mg");
         let id = seed_output(&mut s);
@@ -5596,7 +5600,7 @@ pub(crate) mod tests {
 
     #[test]
     fn merge_thresholds_clamp_and_keep_order() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("th");
         s.set_merge_thresholds(0.9, 0.1); // inverted: hi rises to lo
@@ -5610,9 +5614,9 @@ pub(crate) mod tests {
 
     #[test]
     fn review_draft_roundtrip_badges_and_submit_clears() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
-        let _rlock = REVIEWS_LOCK.lock().unwrap();
+        let _rlock = REVIEWS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _rev = ReviewsGuard::take("rt");
         let (mut s, dir) = output_store("rev");
         let id = seed_output(&mut s);
@@ -5643,9 +5647,9 @@ pub(crate) mod tests {
 
     #[test]
     fn review_revert_restores_snapshot() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
-        let _rlock = REVIEWS_LOCK.lock().unwrap();
+        let _rlock = REVIEWS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _rev = ReviewsGuard::take("rv");
         let (mut s, dir) = output_store("rev2");
         let id = seed_output(&mut s);
@@ -5661,7 +5665,7 @@ pub(crate) mod tests {
 
     #[test]
     fn default_outdir_classes_and_unhide() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("set");
         // Seed while the queue points at the temp dir (never the live home).
@@ -5669,9 +5673,19 @@ pub(crate) mod tests {
         let custom =
             std::env::temp_dir().join(format!("pv-out-custom-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&custom);
+        // Compare canonical-vs-canonical: accept_override() resolves
+        // junctions/short (8.3) names, so the raw temp path never equals
+        // the stored one textually on machines where %TEMP% is aliased
+        // (CI runners use RUNNER~1-style short components).
+        let canon = pv_backend::paths::accept_override(
+            custom.to_str().unwrap(),
+            pv_backend::paths::Purpose::Output,
+        )
+        .unwrap()
+        .path;
         s.set_default_outdir(custom.to_str().unwrap()).unwrap();
-        assert_eq!(s.run_outdir().unwrap(), custom);
-        assert_eq!(s.queue.out_dir(), custom.as_path());
+        assert_eq!(s.run_outdir().unwrap(), canon);
+        assert_eq!(s.queue.out_dir(), canon.as_path());
         s.reset_default_outdir();
         assert!(s.run_outdir().is_none());
         assert!(s.set_default_outdir("").is_err());
@@ -5690,7 +5704,7 @@ pub(crate) mod tests {
 
     #[test]
     fn summary_tier_sets_chunk_ratio_and_persists() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("tier2");
         assert_eq!(Store::tier_chunk_tokens("recap"), 1000);
@@ -5732,7 +5746,7 @@ pub(crate) mod tests {
 
     #[test]
     fn clean_caches_refuses_while_processing() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("cc");
         s.processing.push(ProcFile {
