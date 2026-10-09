@@ -1,7 +1,7 @@
 [package]
 publish = false
 name = "voice-mail"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 
 [[bin]]
@@ -36,7 +36,7 @@ gpui-kit = { version = "=0.6.4", features = ["test-support"] }
 # in-app downloader, then the app runs fully offline.
 [package.metadata.packager]
 product-name = "voice mail"
-version = "1.0.1"
+version = "1.0.2"
 identifier = "com.presentvoice.app"
 description = "Batch transcribe + summarize lectures. Works fully offline after models."
 category = "Productivity"
