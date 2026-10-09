@@ -30,6 +30,11 @@ pub struct RootView {
     wizard: Entity<WizardView>,
 }
 
+/// Viewport widths below this render the tab bar even when the sidebar
+/// preference is set: the fixed 200px menu would leave no body to show.
+/// The preference itself is untouched — wide windows keep the sidebar.
+const SIDEBAR_MIN_WIDTH: f32 = 560.;
+
 impl RootView {
     /// Assembled by `main` (which owns the window borrow); see module docs.
     pub fn assemble(
@@ -229,7 +234,7 @@ pub fn page_scroll_ids() -> [(&'static str, &'static str); 7] {
 }
 
 impl Render for RootView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // First-run wizard takes the whole window while open (never a trap:
         // every wizard state offers import / retry / continue-without).
         // Absolute fill, NOT a `%` height: the wizard renders directly under
@@ -249,7 +254,7 @@ impl Render for RootView {
                 .child(self.wizard.clone().into_any_element())
                 .into_any_element();
         }
-        let (page, theme_id, high_contrast, reduce_motion, nav_seq, sidebar_mode) = {
+        let (page, theme_id, high_contrast, reduce_motion, nav_seq, sidebar_pref) = {
             let snap = self.store.read(cx);
             (
                 snap.page,
@@ -260,6 +265,9 @@ impl Render for RootView {
                 snap.nav_mode == "sidebar",
             )
         };
+        // Narrow windows fall back to tabs (see SIDEBAR_MIN_WIDTH): the
+        // menu would otherwise consume the whole viewport.
+        let sidebar_mode = sidebar_pref && window.viewport_size().width > px(SIDEBAR_MIN_WIDTH);
 
         let body: gpui_kit::AnyElement = match page {
             Page::Input => self.input.clone().into_any_element(),
@@ -656,6 +664,89 @@ mod tests {
                     .unwrap();
                 });
             }
+        }
+    }
+
+    /// Sidebar preference falls back to tabs on narrow windows (the
+    /// fixed 200px menu would leave no body): tabs render below
+    /// SIDEBAR_MIN_WIDTH with the page intact, sidebar above it.
+    #[gpui_kit::test]
+    fn sidebar_falls_back_to_tabs_on_narrow_windows(cx: &mut TestAppContext) {
+        use gpui_kit::component::Root;
+        use gpui_kit::test::TestWindowExt;
+        use gpui_kit::{size, AnyWindowHandle};
+
+        let _scroll = SCROLL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _plock = crate::store::tests::PREFS_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _mlock = crate::store::tests::MANIFEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _models = ModelsDirGuard::take("scroll-nav");
+
+        cx.update(gpui_kit::init);
+        cx.update(|cx| crate::theme::apply_theme("dark", false, cx));
+
+        for (w, h, want_sidebar) in [(200., 200., false), (800., 600., true)] {
+            let handle = cx.open_window(size(px(w), px(h)), |window, cx| {
+                let store = cx.new(|_| Store::new());
+                store.update(cx, |s, _| {
+                    s.wizard_open = false;
+                    // Direct field write (not set_nav_mode): the setter
+                    // persists prefs to disk — racy under parallel tests.
+                    s.nav_mode = "sidebar".to_string();
+                    s.goto_page(Page::Input);
+                });
+                let input = cx.new(|_| InputView::assemble(store.clone()));
+                let record = cx.new(|cx| RecordView::assemble(window, cx, store.clone()));
+                let output = OutputView::new(window, cx, store.clone());
+                let models = ModelsView::new(cx, store.clone());
+                let settings = SettingsView::new(window, cx, store.clone());
+                let wizard = WizardView::new(cx, store.clone());
+                let view = cx.new(|_| {
+                    RootView::assemble(
+                        store.clone(),
+                        input,
+                        record,
+                        output,
+                        models,
+                        settings,
+                        wizard,
+                    )
+                });
+                Root::new(view, window, cx)
+            });
+            let any: AnyWindowHandle = handle.into();
+            cx.update(|cx| {
+                cx.update_window(any, |_, window, cx| {
+                    window.render_frame(cx);
+                    // Tabs/sidebar presence via path containment (neither
+                    // container id is itself observed — only descendants
+                    // register — so `find` can't address them directly).
+                    let nav = gpui_kit::ElementId::from("nav");
+                    let side = gpui_kit::ElementId::from("nav-side");
+                    let has = |id: &gpui_kit::ElementId| {
+                        gpui_kit::base::test_support::snapshots(window)
+                            .iter()
+                            .any(|s| s.path().contains(id))
+                    };
+                    if want_sidebar {
+                        assert!(has(&side), "{w}x{h}: sidebar preference lost");
+                        assert!(!has(&nav), "{w}x{h}: sidebar showing, tabs must not render");
+                    } else {
+                        assert!(has(&nav), "{w}x{h}: narrow window must fall back to tabs");
+                        assert!(
+                            !has(&side),
+                            "{w}x{h}: narrow window must not render the fixed menu"
+                        );
+                        // The page body renders under the tab bar (the
+                        // input scroller subtree resolves with buttons).
+                        window.within("input-scroll");
+                    }
+                })
+                .unwrap();
+            });
         }
     }
 

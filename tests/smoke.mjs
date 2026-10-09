@@ -271,6 +271,7 @@ ok(src('app/src/views_settings.rs').includes('theme'), 'theme toggle lives in Se
 ok(src('app/src/views.rs').includes('TabBar') && src('app/src/views.rs').includes('Sidebar'), 'both nav chromes implemented (tabs + sidebar)');
 ok(src('pv-backend/src/prefs.rs').includes('nav_mode') && src('app/src/views_settings.rs').includes('"nav"'), 'nav preference persisted + choosable');
 ok(!src('app/src/views.rs').includes('nav_button'), 'button-bar nav retired');
+ok(src('app/src/views.rs').includes('SIDEBAR_MIN_WIDTH'), 'sidebar falls back to tabs on narrow windows');
 // --- 5f. Custom model path ---
 ok(src('pv-backend/src/dirs.rs').includes('MODELS_OVERRIDE'), 'models-dir override exists');
 ok(src('app/src/views_settings.rs').includes('models-browse'), 'Browse option in Settings page');
