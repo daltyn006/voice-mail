@@ -448,9 +448,12 @@ ok(src('app/src/store.rs').includes('clean_caches') && src('app/src/views_settin
 ok(src('app/src/store.rs').includes('strip_prefix("Merged")'), 'merged titles strip existing prefix (no double Merged)');
 ok(src('app/src/store.rs').includes('dismissed_groups'), 'dismissed merge groups persist');
 // --- 7b. Scripts run from any CWD (sentinel walk-up; safe under orchestration) ---
-for (const s of ['build', 'setup-windows', 'fetch-models', 'dev/smoke-test', 'dev/measure-models']) {
+for (const s of ['build', 'setup-windows', 'fetch-models', 'dev/smoke-test', 'dev/measure-models', 'package-release']) {
   ok(src(`scripts/${s}.ps1`).includes('repo root not found above'), `${s}.ps1 is CWD-independent`);
 }
+// install-update.ps1 is standalone (runs on user machines with no checkout).
+ok(src('scripts/install-update.ps1').includes('SHA256SUMS') && src('scripts/install-update.ps1').includes('msiexec'), 'update script verifies hashes then installs the MSI');
+ok(src('scripts/package-release.ps1').includes('SHA256SUMS') && src('scripts/package-release.ps1').includes('Version lockstep'), 'release script gates versions and re-verifies dist hashes');
 ok(!existsSync('scripts/build-all.ps1'), 'legacy build-all.ps1 removed (use build.ps1)');
 ok(!existsSync('scripts/smoke-test.ps1') && !existsSync('scripts/measure-models.ps1'), 'test scripts live in scripts/dev/');
 ok(src('scripts/build.ps1').includes('Dev staging'), 'build stages backend beside dev binaries');
