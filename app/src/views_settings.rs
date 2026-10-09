@@ -110,7 +110,7 @@ fn choice(
     options: &[(&str, &str, bool)],
     store: Entity<Store>,
 ) -> gpui_kit::AnyElement {
-    let mut row = h_flex().gap_2().flex_wrap();
+    let mut row = h_flex().gap_2().flex_wrap().min_w(px(0.));
     for (id, label, active) in options {
         let mut b = Button::new(format!("{group}-{id}"))
             .label(*label)
@@ -339,7 +339,7 @@ impl Render for SettingsView {
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(
                         div()
                             .flex_1()
@@ -407,8 +407,8 @@ impl Render for SettingsView {
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
-                    .child(div().flex_1().min_w(px(180.)).child(Input::new(&classes_e)))
+                    .flex_wrap().min_w(px(0.))
+                    .child(div().flex_1().min_w(px(140.)).child(Input::new(&classes_e)))
                     .child(
                         Button::new("set-classes")
                             .label("Save classes")
@@ -440,9 +440,9 @@ impl Render for SettingsView {
             .child(choice(
                 "denoise",
                 &[
-                    ("recommended", "Denoise: recommended (adaptive)", denoise == "recommended"),
-                    ("off", "Denoise: off", denoise == "off"),
-                    ("aggressive", "Denoise: aggressive", denoise == "aggressive"),
+                    ("recommended", "Recommended", denoise == "recommended"),
+                    ("off", "Off", denoise == "off"),
+                    ("aggressive", "Aggressive", denoise == "aggressive"),
                 ],
                 store.clone(),
             ))
@@ -452,12 +452,12 @@ impl Render for SettingsView {
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(div().flex_1().child(Input::new(&window_e)))
                     .child(div().flex_1().child(Input::new(&budget_e)))
                     .child(
                         Button::new("set-adv")
-                            .label("Apply (window/VRAM)")
+                            .label("Apply")
                             .font_weight(FontWeight::SEMIBOLD)
                             .on_click({
                                 let store = store.clone();
@@ -504,7 +504,7 @@ impl Render for SettingsView {
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(
                         Button::new("chunk-small")
                             .label("Small")
@@ -571,17 +571,19 @@ impl Render for SettingsView {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(theme::label("Output folder", &theme_mode, high_contrast))
-                    .child(theme::value(outdir_cur, &theme_mode, high_contrast)),
+                    .flex_wrap()
+                    .min_w(px(0.))
+                    .child(theme::label("Output folder", &theme_id, high_contrast))
+                    .child(theme::value(outdir_cur, &theme_id, high_contrast)),
             )
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(div().flex_1().child(Input::new(&outdir_e)))
                     .child(
                         Button::new("set-outdir")
-                            .label("Save output folder")
+                            .label("Save")
                             .font_weight(FontWeight::SEMIBOLD)
                             .on_click({
                                 let store = store.clone();
@@ -626,9 +628,11 @@ impl Render for SettingsView {
             .child(
                 h_flex()
                     .gap_2()
+                    .flex_wrap()
+                    .min_w(px(0.))
                     .child(
                         Button::new("models-browse")
-                            .label("Change models folder…")
+                            .label("Change…")
                             .font_weight(FontWeight::SEMIBOLD)
                             .on_click({
                                 let store = store.clone();
@@ -639,7 +643,7 @@ impl Render for SettingsView {
                     )
                     .child(
                         Button::new("models-reset")
-                            .label("Reset models folder")
+                            .label("Reset")
                             .font_weight(FontWeight::SEMIBOLD)
                             .on_click({
                                 let store = store.clone();
@@ -654,15 +658,15 @@ impl Render for SettingsView {
             )
             .child(choice(
                 "delconv",
-                &[("on", "Delete converted: ON", delconv), ("off", "Delete converted: OFF", !delconv)],
+                &[("on", "Delete converted", delconv), ("off", "Keep converted", !delconv)],
                 store.clone(),
             ))
             .child(choice(
                 "retention",
                 &[
-                    ("keep", "Sources: keep", retention == "keep"),
-                    ("delete", "Sources: delete on success", retention == "delete"),
-                    ("archive", "Sources: archive beside output", retention == "archive"),
+                    ("keep", "Keep sources", retention == "keep"),
+                    ("delete", "Delete sources", retention == "delete"),
+                    ("archive", "Archive sources", retention == "archive"),
                 ],
                 store.clone(),
             ))
@@ -672,17 +676,19 @@ impl Render for SettingsView {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(theme::label("Review drafts", &theme_mode, high_contrast))
-                    .child(theme::value(reviews_cur, &theme_mode, high_contrast)),
+                    .flex_wrap()
+                    .min_w(px(0.))
+                    .child(theme::label("Review drafts", &theme_id, high_contrast))
+                    .child(theme::value(reviews_cur, &theme_id, high_contrast)),
             )
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(div().flex_1().child(Input::new(&reviews_e)))
                     .child(
                         Button::new("set-reviews")
-                            .label("Save drafts folder")
+                            .label("Save")
                             .font_weight(FontWeight::SEMIBOLD)
                             .on_click({
                                 let store = store.clone();
@@ -700,7 +706,7 @@ impl Render for SettingsView {
                     )
                     .child(
                         Button::new("move-reviews")
-                            .label("Move existing drafts")
+                            .label("Move")
                             .font_weight(FontWeight::SEMIBOLD)
                             .on_click({
                                 let store = store.clone();
@@ -737,8 +743,8 @@ impl Render for SettingsView {
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
-                    .child(div().flex_1().min_w(px(180.)).child(Input::new(&docmax_e)))
+                    .flex_wrap().min_w(px(0.))
+                    .child(div().flex_1().min_w(px(140.)).child(Input::new(&docmax_e)))
                     .child(
                         Button::new("set-docmax")
                             .label("Save max chars")
@@ -760,7 +766,7 @@ impl Render for SettingsView {
             )
             .child(choice(
                 "pdfmode",
-                &[("warn", "Scanned PDF: warn+skip", pdfmode == "warn"), ("shell", "Scanned PDF: keep shell", pdfmode == "shell")],
+                &[("warn", "PDF: warn+skip", pdfmode == "warn"), ("shell", "PDF: keep shell", pdfmode == "shell")],
                 store.clone(),
             ));
         body = body
@@ -769,7 +775,7 @@ impl Render for SettingsView {
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(div().flex_1().min_w(px(140.)).child(Input::new(&suggest_e)))
                     .child(div().flex_1().min_w(px(140.)).child(Input::new(&prompt_e)))
                     .child(
@@ -796,9 +802,9 @@ impl Render for SettingsView {
             .child(choice(
                 "mergemode",
                 &[
-                    ("ask", "Default: ask", mmode == "ask"),
-                    ("executive", "Default: executive", mmode == "executive"),
-                    ("long", "Default: long", mmode == "long"),
+                    ("ask", "Ask", mmode == "ask"),
+                    ("executive", "Executive", mmode == "executive"),
+                    ("long", "Long", mmode == "long"),
                 ],
                 store.clone(),
             ))
@@ -824,7 +830,7 @@ impl Render for SettingsView {
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(detent("att-overview", "Overview", 15, attention_e.clone(), store.clone()))
                     .child(detent("att-balanced", "Balanced", 50, attention_e.clone(), store.clone()))
                     .child(detent("att-academic", "Academic", 85, attention_e.clone(), store.clone())),
@@ -836,18 +842,18 @@ impl Render for SettingsView {
             .child(section("Research (web, opt-in)", &theme_mode, high_contrast))
             .child(choice(
                 "websrch",
-                &[("off", "Web research: OFF (offline)", !web), ("on", "Web research: ON (up to 10 cited sources)", web)],
+                &[("off", "Research OFF", !web), ("on", "Research ON", web)],
                 store.clone(),
             ))
             .child(
-                theme::hint("Off by default. When on, video jobs may fetch pages AFTER watching — web text is cited per-claim and never mixed with film facts.", &theme_mode, high_contrast),
+                theme::hint("Off by default. When on, video jobs may fetch up to 10 cited pages AFTER watching — web text is cited per-claim and never mixed with film facts.", &theme_mode, high_contrast),
             );
         body = body
             .child(section("Diagnostics", &theme_mode, high_contrast))
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(
                         Button::new("diag-clear")
                             .label("Clear logs")
@@ -867,7 +873,7 @@ impl Render for SettingsView {
                     )
                     .child(
                         Button::new("unhide-all")
-                            .label("Unhide dismissed outputs")
+                            .label("Unhide dismissed")
                             .font_weight(FontWeight::SEMIBOLD)
                             .on_click({
                                 let store = store.clone();
@@ -881,7 +887,7 @@ impl Render for SettingsView {
                     )
                     .child(
                         Button::new("sweep-drafts")
-                            .label("Clean orphan drafts")
+                            .label("Sweep drafts")
                             .font_weight(FontWeight::SEMIBOLD)
                             .on_click({
                                 let store = store.clone();
@@ -982,13 +988,17 @@ impl Render for SettingsView {
             ),
         );
         body = body.child(theme::value(status, &theme_mode, high_contrast));
+        // Trailing scroll-test anchor (1px, see views::page_bottom_marker).
+        body = body.child(crate::views::page_bottom_marker());
         // Scrollable so all seven sections fit any window size (nav stays
-        // fixed — only this page body scrolls). Both axes: narrow windows
-        // scroll sideways instead of clipping.
+        // fixed — only this page body scrolls). Vertical-only (kit
+        // Both-axis areas never scroll vertically); rows wrap + inputs
+        // shrink to fit, so no horizontal scroller is needed.
         div()
             .flex_1()
-            .h_full()
-            .overflow_scrollbar()
+            .min_h(px(0.))
+            .min_w(px(0.))
+            .overflow_y_scrollbar()
             .id("settings-scroll")
             .child(body)
             .into_any_element()

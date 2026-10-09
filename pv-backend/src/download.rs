@@ -692,7 +692,9 @@ mod tests {
         assert!(dir.join("m.bin").exists());
         // Right size, no pin → hashed and accepted (hex recorded).
         std::fs::write(dir.join("m.bin"), b"abc").unwrap();
-        let want = format!("{:x}", sha2::Sha256::digest(b"abc"));
+        let mut h = sha2::Sha256::new();
+        h.update(b"abc");
+        let want = crate::verify::hex_digest(h);
         assert_eq!(
             verified_complete(&dir, "id", "m.bin", 3, ""),
             Some(want.clone())

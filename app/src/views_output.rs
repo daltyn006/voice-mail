@@ -152,7 +152,7 @@ impl OutputView {
             let snap = self.store.read(cx);
             (snap.theme_mode.clone(), snap.high_contrast)
         };
-        let mut row = h_flex().gap_2().flex_wrap().p_1()
+        let mut row = h_flex().gap_2().flex_wrap().min_w(px(0.)).p_1()
             .border_1()
             .border_color(rgba(theme::border(&theme_id, hc)))
             .rounded(px(6.0));
@@ -472,13 +472,17 @@ impl Render for OutputView {
                 .id("out-tree")
                 .children(rows),
         );
+        // Trailing scroll-test anchor (1px, see views::page_bottom_marker).
+        body = body.child(crate::views::page_bottom_marker());
         // Page-level bound (matches Settings/Input/Models): the list + tree
         // live inside the root's bounded slot so small windows scroll.
-        // Both axes: narrow windows scroll sideways instead of clipping.
+        // Vertical-only (kit Both-axis areas never scroll vertically);
+        // rows wrap/truncate to fit, so no horizontal scroller is needed.
         div()
             .flex_1()
-            .h_full()
-            .overflow_scrollbar()
+            .min_h(px(0.))
+            .min_w(px(0.))
+            .overflow_y_scrollbar()
             .id("output-scroll")
             .child(body)
             .into_any_element()
@@ -540,12 +544,14 @@ impl OutputView {
         let back_panes = panes.clone();
         // Review owns a page-level scroll box (matches the Output list):
         // panes + editors + diff scroll inside the bounded root slot on
-        // small windows instead of clipping the action bar. The inner
+        // small windows instead of clipping the action bar. Vertical-only
+        // (kit Both-axis areas never scroll vertically). The inner
         // `rev-unified` diff keeps its own fixed-height y-scroll.
         div()
             .flex_1()
-            .h_full()
-            .overflow_scrollbar()
+            .min_h(px(0.))
+            .min_w(px(0.))
+            .overflow_y_scrollbar()
             .id("review-scroll")
             .child(
                 v_flex()
@@ -565,7 +571,7 @@ impl OutputView {
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(Self::review_action(
                         "rev-merge".to_string(),
                         "Merge",
@@ -665,11 +671,11 @@ impl OutputView {
             } else {
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(
                         v_flex()
                             .flex_1()
-                            .min_w(px(220.))
+                            .min_w(px(160.))
                             .gap(px(theme::SPACE_MD))
                             .child(
                                 div()
@@ -684,7 +690,7 @@ impl OutputView {
                     .child(
                         v_flex()
                             .flex_1()
-                            .min_w(px(220.))
+                            .min_w(px(160.))
                             .gap(px(theme::SPACE_MD))
                             .child(
                                 div()
@@ -707,6 +713,8 @@ impl OutputView {
                     .id("rev-unified")
                     .children(rows),
             )
+            // Trailing scroll-test anchor (1px, see views::page_bottom_marker).
+            .child(crate::views::page_bottom_marker())
             )
             .into_any_element()
     }

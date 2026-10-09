@@ -37,7 +37,7 @@ Open the **Record** page → pick an input → **● Record**. Takes save as 24-
 
 ### Using your Ollama models (no duplicate downloads)
 
-Already have models in Ollama? Don't download them twice. Open the **Models** page → **Scan Ollama library** → **Link** the one you want (or set it active). What happens:
+Already have models in Ollama? Don't download them twice. Open the **Models** page → **Scan Ollama** → **Link** the one you want (or set it active). What happens:
 
 - The app records the model's location and loads the GGUF blob **straight from Ollama's store** into its own summarizer (`llama.cpp`) — the file is never copied or moved.
 - Ollama keeps working exactly as before; both programs read the same bytes.

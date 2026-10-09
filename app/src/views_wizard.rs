@@ -66,7 +66,7 @@ impl Render for WizardView {
             .child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(tier_button("Lite", "lite", &tier, self.store.clone(), cx))
                     .child(tier_button(
                         "Standard",
@@ -90,6 +90,8 @@ impl Render for WizardView {
         for (id, pct, done, err) in jobs {
             let mut row = h_flex()
                 .gap_2()
+                .flex_wrap()
+                .min_w(px(0.))
                 .child(
                     div()
                         .child(format!("{id}: {pct}%{}", if done { " done" } else { "" }))
@@ -108,6 +110,8 @@ impl Render for WizardView {
         body = body.child(
             h_flex()
                 .gap_2()
+                .flex_wrap()
+                .min_w(px(0.))
                 .child(
                     Button::new("wz-go").label("Download & Start").primary().font_weight(FontWeight::SEMIBOLD).on_click(move |_, _, cx| {
                         let tier_now = tier_now.clone();
@@ -126,7 +130,7 @@ impl Render for WizardView {
                     }),
                 )
                 .child(
-                    Button::new("wz-scan").label("Scan Ollama library").font_weight(FontWeight::SEMIBOLD).on_click(move |_, _, cx| {
+                    Button::new("wz-scan").label("Scan Ollama").font_weight(FontWeight::SEMIBOLD).on_click(move |_, _, cx| {
                         store_i.update(cx, |s, cx| {
                             let n = s.scan_ollama();
                             if n > 0 {
@@ -139,21 +143,26 @@ impl Render for WizardView {
                     }),
                 )
                 .child(
-                    Button::new("wz-skip").label("Continue without models").font_weight(FontWeight::SEMIBOLD).on_click(move |_, _, cx| {
+                    Button::new("wz-skip").label("Skip downloads").font_weight(FontWeight::SEMIBOLD).on_click(move |_, _, cx| {
                         store_c.update(cx, |s, cx| {
                             s.wizard_open = false;
                             s.status = "Running without models: transcription disabled until Models are ready.".to_string();
                             cx.notify();
                         });
                     }),
-                ),
+                )
+                // Trailing scroll-test anchor (1px, see views::page_bottom_marker).
+                .child(crate::views::page_bottom_marker()),
         );
         // The wizard takes the whole window (never trapped inside the page
-        // slot), so it owns its scroll box: small windows scroll both axes
-        // instead of clipping the tier/download/continue controls.
+        // slot), so it owns its scroll box: small windows scroll instead of
+        // clipping the tier/download/continue controls. Vertical-only (kit
+        // Both-axis areas never scroll vertically); rows wrap to fit.
         div()
-            .size_full()
-            .overflow_scrollbar()
+            .flex_1()
+            .min_h(px(0.))
+            .min_w(px(0.))
+            .overflow_y_scrollbar()
             .id("wizard-scroll")
             .child(body)
             .into_any_element()

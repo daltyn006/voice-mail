@@ -63,7 +63,7 @@ for (const [stem, want] of dayCases) ok(parseDay(stem) === want, `day-parse: "${
 
 // --- 3. Rust workspace contracts (native GPUI, no Tauri) ---
 const appToml = src('app/Cargo.toml');
-ok(appToml.includes('gpui-kit = "=0.6.1"'), 'gpui-kit facade pinned exact');
+ok(appToml.includes('gpui-kit = "=0.6.4"'), 'gpui-kit facade pinned exact');
 ok(src('app/src/main.rs').includes('gpui_kit::'), 'boot uses kit facade');
 ok(!existsSync('app/src/views_processing.rs'), 'M3 processing view merged into input page');
   ok(src('app/src/views_input.rs').includes('Progress::new'), 'progress bars on input page');
@@ -149,7 +149,9 @@ ok(pipe.includes('checkpoint()') && pipe.includes('pv_queue_remove'), 'pipeline 
 ok(pipe.includes('never silently overwrite'), 'output filenames uniquified');
 ok(pipe.includes('day_cap <= 0'), 'day/class resolver guards buffers');
 ok(src('pv-backend/src/queue.rs').includes('c.pause(false)'), 'abort releases held pause');
-ok(pipe.includes('}  // namespace\n\n// ---- Worker control'), 'pv control block is top-level ::pv (not nested in anon namespace)');
+  const anonClose = pipe.indexOf('}  // namespace');
+  const pvOpen = pipe.indexOf('namespace pv {', anonClose);
+  ok(anonClose >= 0 && pvOpen > anonClose && pipe.includes('must NOT move into the anonymous'), 'pv control block is top-level ::pv (not nested in anon namespace)');
 ok(src('core/src/stt_whisper.cpp').includes('progress_hook'), 'STT reports per-window progress');
 ok(src('core/src/llm_llama.cpp').includes('__ABORTED__'), 'LLM propagates abort');
   ok(src('core/src/llm_llama.cpp').includes('session_load(s, true') && src('core/src/llm_llama.cpp').includes('reopen CPU'), 'LLM Vulkan->CPU retry');
@@ -229,6 +231,12 @@ for (const f of ['views_input.rs','views_record.rs','views_output.rs','views_mod
 ok(src('app/src/theme.rs').includes('gruvbox_dark') && src('app/src/theme.rs').includes('coffee_light'), 'gruvbox + coffee appearances exist');
 ok(src('app/src/theme.rs').includes('high_contrast') && src('pv-backend/src/prefs.rs').includes('high_contrast'), 'high-contrast overlay persisted');
 ok(src('app/src/theme.rs').includes('ScrollbarMode::Always'), 'scrollbars stay visible on overflow');
+// Both-axis Scrollables (row-direction area) never engage vertical
+// scrolling in this kit version — pages must use single-axis scrollers
+// (vertical page boxes; horizontal only for fixed-content strips).
+for (const f of ['views_input.rs','views_models.rs','views_output.rs','views_record.rs','views_settings.rs','views_wizard.rs']) {
+  ok(!src(`app/src/${f}`).includes('.overflow_scrollbar('), `${f}: no Both-axis scroller (use overflow_y/x_scrollbar)`);
+}
 ok(src('app/src/views.rs').includes('flex_shrink_0'), 'sidebar keeps its natural width (no overhang)');
 ok(existsSync('LICENSE') && src('LICENSE').includes('MIT License'), 'MIT LICENSE present');
 ok(src('README.md').includes('AI assistance disclosure'), 'README discloses AI assistance');
@@ -253,8 +261,8 @@ ok(!src('app/src/views.rs').includes('nav_button'), 'button-bar nav retired');
 // --- 5f. Custom model path ---
 ok(src('pv-backend/src/dirs.rs').includes('MODELS_OVERRIDE'), 'models-dir override exists');
 ok(src('app/src/views_settings.rs').includes('models-browse'), 'Browse option in Settings page');
-  ok(src('app/src/views_models.rs').includes('Set as Transcribing'), 'STT toggle button in Models page');
-  ok(src('app/src/views_models.rs').includes('Set as Summarizing'), 'LLM toggle button in Models page');
+  ok(src('app/src/views_models.rs').includes('"Set STT"'), 'STT toggle button in Models page');
+  ok(src('app/src/views_models.rs').includes('"Set LLM"'), 'LLM toggle button in Models page');
   ok(src('app/src/views_models.rs').includes('h_flex'), 'models page uses side-by-side columns');
   ok(src('app/src/views_models.rs').includes('CPU only'), 'compute mode selector in Models page');
   ok(src('app/src/store.rs').includes('compute_mode') && src('pv-backend/src/prefs.rs').includes('compute_mode'), 'compute mode persisted');
@@ -262,6 +270,9 @@ ok(src('app/src/views_settings.rs').includes('models-browse'), 'Browse option in
   ok(src('core/src/audio_ffmpeg.cpp').includes('convert_to_wav_16k') && src('core/src/audio_ffmpeg.cpp').includes('read_wav_16k_mono'), 'audio-first convert + WAV reader in core');
 ok(src('core/src/audio_audacity.cpp').includes('render_audacity_to_wav') && src('core/src/audio_audacity.cpp').includes('decode_binx'), 'native Audacity project import (binary-XML decode + mixdown, no vendored Audacity code)');
 ok(src('core/CMakeLists.txt').includes('audio_audacity.cpp'), 'project importer compiled into the core DLL');
+ok(existsSync('.gitmodules') && src('.gitmodules').includes('core/thirdparty/whisper.cpp') && src('.gitmodules').includes('https://github.com/ggml-org/llama.cpp'), 'submodules registered on canonical ggml-org remotes (pins live in the gitlinks)');
+ok(src('scripts/setup-windows.ps1').includes('submodule add -f') && src('scripts/setup-windows.ps1').includes('PV_GPU_VENDOR'), 'setup registers submodules and gates Vulkan SDK on vendor');
+ok(src('scripts/build.ps1').includes('Get-Command nvidia-smi') && src('scripts/build.ps1').includes('Get-Command amd-smi'), 'vendor probe guards SMI tools by existence (missing exe never throws)');
 ok(src('app/src/store.rs').includes('PROJECT_EXTS') && src('app/src/views_input.rs').includes('PROJECT_EXTS'), 'project files stage as audio from picker + gate');
 ok(src('pv-backend/src/share.rs').includes('reveal_in_folder') && src('pv-backend/src/share.rs').includes('copy_text'), 'reveal-in-folder + clipboard live in a per-OS backend module');
 ok(src('app/src/views_input.rs').includes('warn-{site}-') && src('app/src/views_input.rs').includes('warn-banner-') && src('app/src/views_input.rs').includes('warn_button("row"'), 'warning badges carry per-site id prefixes (duplicate GPUI element ids panic the a11y tree)');
@@ -271,7 +282,10 @@ ok(src('core/src/pipeline.cpp').includes('srt_from_transcript'), 'video jobs emi
 ok(src('app/src/store.rs').includes('spawn_boot_verify') && src('pv-backend/src/progress.rs').includes('BootVerified'), 'model integrity runs on a boot worker, Start never hashes');
 ok(src('app/src/store.rs').includes('restore_staged') && src('pv-backend/src/prefs.rs').includes('staged'), 'staged queue persists across restarts');
 ok(src('pv-backend/src/update.rs').includes('check_blocking') && src('app/src/views_settings.rs').includes('check-updates'), 'manual update check, user-initiated only');
+ok(src('pv-backend/src/update.rs').includes('pick_installer') && src('pv-backend/src/update.rs').includes('.msi'), 'update check points at the MSI installer asset');
+ok(src('app/Cargo.toml').includes('upgrade-code'), 'MSI carries a stable upgrade-code (major upgrades, never side-by-side)');
 ok(src('core/src/audio_ffmpeg.cpp').includes('qarg') && !src('core/src/audio_ffmpeg.cpp').includes('-i \\"'), 'ffmpeg spawn lines are quote-escaped (no raw -i interpolation)');
+ok(src('core/CMakeLists.txt').includes('set(GGML_VULKAN ${_PV_VULKAN} CACHE BOOL "" FORCE)') && src('core/CMakeLists.txt').includes('PV_GPU_VENDOR'), 'Vulkan flags forced from detection (stale -D can never wedge configure)');
 ok(src('core/src/audio_ffmpeg.cpp').includes('RF64') && src('core/src/audio_ffmpeg.cpp').includes('ds64'), 'WAV reader accepts RF64/ds64 with EOF clamp');
 ok(src('core/src/stt_whisper.cpp').includes('initial_prompt') && src('core/src/pipeline.cpp').includes('part_seed_prompt'), 'split takes seed Part N from Part N-1 transcript tail');
   ok(src('app/src/main.rs').includes('#![windows_subsystem = "windows"]'), 'dev build suppresses console window');
@@ -337,6 +351,8 @@ ok(src('app/src/views_wizard.rs').includes('wizard-scroll') && src('app/src/view
 ok(src('app/src/views_input.rs').includes('spawn_file_pick') && src('app/src/views_settings.rs').includes('spawn_folder_pick') && src('app/src/views_input.rs').includes('background_executor'), 'native file dialogs run off the UI thread (no RefCell re-entrancy)');
 ok(src('pv-backend/src/verify.rs').includes('pub advisory') && src('app/src/store.rs').includes('w.advisory'), 'unpinned/linked model notices stay out of the Error Center');
 ok(src('scripts/build.ps1').includes('build-info.json') && src('scripts/build.ps1').includes('rev-parse HEAD'), 'each build records whisper/llama SHAs beside the DLL');
+{ const cmake = src('core/CMakeLists.txt'); const n = cmake.split('add_subdirectory(thirdparty/whisper.cpp').length - 1; ok(n === 1, 'whisper subtree added exactly once (duplicate add breaks configure)'); ok(cmake.indexOf('thirdparty/llama.cpp') < cmake.indexOf('thirdparty/whisper.cpp'), 'llama added before whisper (owns the shared ggml target)'); }
+ok(!src('pv-backend/src/download.rs').includes('{:x}') && !src('pv-backend/src/ollama.rs').includes('{:x}'), 'no direct {:x} digest formatting (use verify::hex_digest; sha2 0.11 digest has no LowerHex)');
 ok(src('app/src/views.rs').includes('size_full') && src('app/src/views.rs').includes('overflow_hidden') == false, 'root bounds the viewport; child pages own their scroll containers');
 ok(src('app/src/main.rs').includes('window_min_size'), 'window collapses to title-bar size by design');
 ok((src('pv-backend/src/record.rs').includes('bits_per_sample: 24') || src('pv-backend/src/record.rs').includes('Rf64Writer')) && src('pv-backend/src/rf64.rs').includes('w16(&mut h, 24)'), 'record takes are 24-bit WAV (RF64)');

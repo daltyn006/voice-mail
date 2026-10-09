@@ -278,7 +278,9 @@ mod tests {
         let blob = dir.join("blob.gguf");
         let content = b"GGUF-fake-weights!";
         std::fs::write(&blob, content).unwrap();
-        let hex = format!("{:x}", sha2::Sha256::digest(content));
+        let mut h = sha2::Sha256::new();
+        h.update(content);
+        let hex = crate::verify::hex_digest(h);
         let mut man = crate::manifest::read(&dir);
         crate::manifest::record_link(
             &mut man,

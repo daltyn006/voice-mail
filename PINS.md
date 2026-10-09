@@ -2,17 +2,17 @@
 
 | Crate | Pin | Why |
 |---|---|---|
-| `gpui-kit` (facade) | `=0.6.1` | Blessed boot (`application()` + `init()` + `Root`); mirrors kit hello_world |
-| `gpui-component` | `=0.6.1` | Comes via the facade; never depended on directly |
-| `gpui-pre` (package) | `=0.3.1` | Comes via the facade; never depended on directly |
+| `gpui-kit` (facade) | `=0.6.4` | Blessed boot (`application()` + `init()` + `Root`); mirrors kit hello_world |
+| `gpui-component` | `=0.6.4` (lock: component 0.6.6 via kit re-export) | Comes via the facade; never depended on directly |
+| `gpui-pre` (package) | `=0.3.6` (via kit 0.6.4) | Comes via the facade; never depended on directly |
 | `embed-resource` (build-dep) | `=3.0.11` | Embeds `assets/voice-mail.ico` (multi-size, built by `scripts/make-icon.ps1`) into the exe; established, tiny |
-| `rfd` | `0.15` | Native file dialogs; semver range is fine (leaf UI dep) |
+| `rfd` | `0.17` | Native file dialogs; semver range is fine (leaf UI dep) |
 | `async-channel` | `2` | Backend→UI event bridge; semver range is fine (leaf dep) |
-| `zip` (backend) | `=2.4.2` | OOXML/ODF/EPUB containers for the offline document extractor |
+| `zip` (backend) | `=8.6.0` | OOXML/ODF/EPUB containers for the offline document extractor |
 | `quick-xml` (backend) | `=0.42.0` | Streaming `w:t`/`a:t`/`text:p` text nodes for the extractor |
 | `calamine` (backend) | `=0.36.1` | `xlsx`/`xls`/`ods` sheets → markdown tables; pure Rust |
 | `encoding_rs` (backend) | `=0.8.41` | UTF-16/Windows-1252 fallback decoding for plain-text docs |
-| `pdf-extract` (backend) | `=0.7.12` | Text-layer PDF extraction; scanned PDFs warn instead of OCR |
+| `pdf-extract` (backend) | `=0.12.1` | Text-layer PDF extraction; scanned PDFs warn instead of OCR |
 | `cpal` (backend) | `=0.18.2` | Cross-platform mic capture (WASAPI/CoreAudio/ALSA) for the Record page |
 | `rf64` (backend, in-tree) | — | Streaming RF64/ds64 24-bit take writer + reader (`pv-backend/src/rf64.rs`); `hound` removed 2026-09 (RIFF-only, wraps past 4 GiB) |
 
@@ -49,8 +49,10 @@ the build fails with E0432/E0433 — that is the tripwire working.
   (`derive_inspector_reflection` referenced but cfg'd out when
   `debug_assertions` are off). Worked around via
   `[profile.release] debug-assertions = true` in the workspace root.
-  Re-evaluate each quarterly review; drop the override once a fixed
-  `gpui-pre` is pinned.
+  Lock now carries macros `0.3.6` (via kit 0.6.4) — UNCONFIRMED whether the
+  upstream fix landed. Dev-box task: try dropping the override; if release
+  builds pass, delete the block. Until then it stays (harmless but slower,
+  and any `debug_assert!` can panic shipped builds).
 
 ## M0 proof (run on a networked Windows machine)
 

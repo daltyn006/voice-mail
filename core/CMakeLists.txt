@@ -21,17 +21,48 @@ add_library(present_core SHARED
 target_include_directories(present_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(present_core PRIVATE PRESENT_CORE_BUILD NOMINMAX WIN32_LEAN_AND_MEAN)
 
-# Vulkan is optional: GPU acceleration when the SDK is discoverable,
-# CPU-only otherwise (a missing SDK must never abort the whole pipeline).
-find_package(Vulkan QUIET)
-set(_PV_VULKAN OFF)
-if(Vulkan_FOUND AND PV_ENABLE_VULKAN)
-  set(_PV_VULKAN ON)
-  target_compile_definitions(present_core PRIVATE PV_HAVE_VULKAN=1)
-  message(STATUS "present_core: Vulkan SDK found -> GPU backends")
-else()
-  message(STATUS "present_core: no Vulkan SDK -> CPU-only backends")
+# GPU backend selection. Vendor arrives from build.ps1 (-DPV_GPU_VENDOR,
+# itself from Win32_VideoController + nvidia-smi, env-overridable for
+# foreign-system builds); AUTO means "try Vulkan, SDK presence decides".
+# NONE (Intel-only/headless/unknown) never touches Vulkan: no SDK lookup,
+# no REQUIRED find, CPU-only, always configures.
+# A missing SDK or dead driver can never abort the pipeline: GGML_VULKAN /
+# LLAMA_VULKAN are forced OFF unconditionally below, so stale -D flags or a
+# reused core/build cache die here instead of inside ggml-vulkan's
+# REQUIRED find_package (the observed fatal error).
+set(PV_GPU_VENDOR "AUTO" CACHE STRING "GPU vendor identity: AUTO|NVIDIA|AMD|NONE")
+set(_PV_TRY_VULKAN ${PV_ENABLE_VULKAN})
+if(PV_GPU_VENDOR STREQUAL "NONE")
+  set(_PV_TRY_VULKAN OFF)
+  message(STATUS "present_core: vendor NONE (Intel-only/headless) -> CPU-only backends")
+elseif(PV_GPU_VENDOR STREQUAL "NVIDIA")
+  find_program(_PV_SMI nvidia-smi)
+  # Initialized: the health check below must never read an unset var when
+  # the tool is absent (relies on empty-string numeric conversion today).
+  set(_PV_SMI_RC 1)
+  if(_PV_SMI)
+    execute_process(COMMAND ${_PV_SMI} -L RESULT_VARIABLE _PV_SMI_RC OUTPUT_QUIET ERROR_QUIET)
+  endif()
+  if(NOT _PV_SMI OR NOT _PV_SMI_RC EQUAL 0)
+    set(_PV_TRY_VULKAN OFF)
+    message(STATUS "present_core: nvidia-smi unhealthy/missing -> CPU-only backends")
+  endif()
 endif()
+set(_PV_VULKAN OFF)
+if(_PV_TRY_VULKAN)
+  find_package(Vulkan QUIET)
+  if(Vulkan_FOUND)
+    set(_PV_VULKAN ON)
+    message(STATUS "present_core: Vulkan SDK found -> GPU backends")
+  else()
+    message(STATUS "present_core: no Vulkan SDK -> CPU-only backends")
+  endif()
+endif()
+if(_PV_VULKAN)
+  target_compile_definitions(present_core PRIVATE PV_HAVE_VULKAN=1)
+endif()
+set(GGML_VULKAN ${_PV_VULKAN} CACHE BOOL "" FORCE)
+set(LLAMA_VULKAN ${_PV_VULKAN} CACHE BOOL "" FORCE)
 
 # Real backends are enabled once sources exist (scripts/setup-windows.ps1 fetches them).
 # Without them the DLL still builds with mock STT/LLM so the GUI + packaging work end-to-end.
@@ -74,9 +105,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/whisper.cpp/CMakeLists.txt")
     message(STATUS "present_core: whisper.cpp backend ON")
     target_compile_definitions(present_core PRIVATE PV_HAVE_WHISPER=1)
-    # Re-affirm (already forced before the llama subtree above; kept so a
-    # whisper-only tree gets the same auto-detect, never a stale cache).
-    set(GGML_VULKAN ${_PV_VULKAN} CACHE BOOL "" FORCE)
     add_subdirectory(thirdparty/whisper.cpp EXCLUDE_FROM_ALL)
     target_link_libraries(present_core PRIVATE whisper)
 else()
