@@ -48,8 +48,8 @@ output/
 app.db
 app.db-journal
 
-# Deps fetched at build time
-core/thirdparty/whisper.cpp/
-core/thirdparty/llama.cpp/
+# Deps fetched at build time (whisper/llama are registered submodules now —
+# tracked gitlinks govern them, so they must NOT be ignored; sqlite +
+# ffmpeg DLLs stay ignored, fetched by setup).
 core/thirdparty/sqlite/
 ffmpeg-dlls/

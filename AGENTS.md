@@ -134,6 +134,13 @@ Events flow: core → mpsc channel → `spawn_pump` → async channel → UI tas
 - Two half-applied patch files (`fix-ci-deny`, `fix-dark-buttons-scrollbar`) finished by hand and removed: `apply_theme` now rebuilds `theme.tokens` + `Theme::sync_base`, and `body_slot` gets `min_h(0)` so long pages scroll.
 - NOT verified here: the GPUI `app` crate (needs rustc 1.92 + Windows), the theme/layout edits above, real whisper/llama backends, and the `sha256` pins (8 still empty in `models.json`; CI tag gate fails closed until populated).
 
+### Submodule + vendor-GPU + dependabot pass (2026-10-06)
+- Submodules registered for real: `.gitmodules` pins whisper `d1be6fd` + llama `abeada3` on canonical `ggml-org/*` (both SHAs verified upstream); `git submodule status` clean. `.gitignore` no longer ignores the two paths. `setup-windows.ps1` tries `submodule update --init`, then `add -f`, then zip (clears half-populated targets first); VulkanSDK installs only on AMD/NVIDIA boxes.
+- GPU selection is vendor-aware and re-detected: `build.ps1` probes `Win32_VideoController` + `nvidia-smi -L` → `PV_GPU_VENDOR` (NONE/AMD/NVIDIA; env overrides for foreign builds, `PV_VULKAN_SDK` points at an SDK); `core/CMakeLists.txt` FORCE-OFFs both `GGML_VULKAN`/`LLAMA_VULKAN` outside all `EXISTS` branches when no SDK, so stale `-D` flags can never wedge configure inside ggml-vulkan's REQUIRED find (the observed fatal). `-Dev` drops `CMakeCache.txt` (selection re-detects, objects kept). CI `-D…VULKAN=ON` flags removed; CI VulkanSDK step is now required with glslc check.
+- Dependabot merged: cargo (gpui-kit 0.6.4, libloading 0.9.0, rfd 0.17.2, sha2 0.11.0, zip 8.6.0 — lock regenerated + fetched), actions (checkout/upload-artifact v7, gh-release v3). Kit APIs re-verified against 0.6.6 sources (all Tab/Tag/Theme/Button/Icon slots intact).
+- Update check now points at the release asset (`.msi` first, `.exe` fallback + `SHA256SUMS` link); `[packager.wix] upgrade-code` added (stable GUID — major upgrades, never side-by-side).
+- NOT verified here (no MSVC linker in this env): `cargo check/test`, real DLL build, zip-8 API compat in `docs.rs`, gpui-pre-macros 0.3.6 E0433 status (workaround kept), `debug-assertions=true` removal. Push blocked until the dev box proves the full build.
+
 ### Known limitations (not bugs)
-- Missing `core/thirdparty/whisper.cpp/` and `core/thirdparty/llama.cpp/` submodules → builds with MOCK STT/LLM only. Run `scripts/setup-windows.ps1` to get real backends.
+- Without `git submodule update --init` the core builds with MOCK STT/LLM only. Run `scripts/setup-windows.ps1` (or `git submodule update --init --recursive`) to get real backends.
 - `ViewMode::Small` exists but is never constructed as a value (only matched). Suppressed with `#[allow(dead_code)]`.

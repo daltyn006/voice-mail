@@ -70,11 +70,12 @@ pub enum Event {
         input: u64,
     },
     /// Boot integrity pass finished (background worker, once per process).
-    /// Carries human-readable warning lines (empty = all pinned models
-    /// verified). Start blocks while the pass is in flight instead of
-    /// hashing gigabytes synchronously.
+    /// Carries findings (empty = all pinned models verified). Advisory
+    /// findings (unpinned/linked) are status-line notes; only real
+    /// problems belong in the Error Center. Start blocks while the pass
+    /// is in flight instead of hashing gigabytes synchronously.
     BootVerified {
-        warnings: Vec<String>,
+        warnings: Vec<crate::verify::BootWarning>,
     },
     /// Manual update check finished (worker thread). Human-readable result
     /// for the status line ("Up to date" / "Update available" / error).

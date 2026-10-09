@@ -1,0 +1,9 @@
+# Real STT/LLM backends, pinned to reviewed commits (never floating master).
+# Registered with `git submodule add -f` (paths were gitignored before).
+# Fresh clones: `git submodule update --init --recursive`.
+[submodule "core/thirdparty/whisper.cpp"]
+	path = core/thirdparty/whisper.cpp
+	url = https://github.com/ggml-org/whisper.cpp
+[submodule "core/thirdparty/llama.cpp"]
+	path = core/thirdparty/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp

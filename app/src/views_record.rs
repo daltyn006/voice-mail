@@ -363,7 +363,7 @@ impl Render for RecordView {
         div()
             .flex_1()
             .h_full()
-            .overflow_y_scrollbar()
+            .overflow_scrollbar()
             .id("record-scroll")
             .child(body)
             .into_any_element()

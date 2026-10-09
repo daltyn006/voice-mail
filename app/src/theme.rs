@@ -388,7 +388,10 @@ pub fn apply_theme(theme_mode: &str, high_contrast: bool, cx: &mut App) {
     colors.slider_thumb = accent;
     colors.progress_bar = accent;
     colors.scrollbar = bg;
-    colors.scrollbar_thumb = border;
+    // Thumb uses muted text (AA on bg) rather than the border tone: on
+    // small windows the edge scrollbar is the only scroll affordance, and
+    // border-on-bg was near-invisible in dark themes.
+    colors.scrollbar_thumb = u32_to_hsla(pal.muted_fg);
     colors.scrollbar_thumb_hover = fg;
     colors.tab_bar = bg;
     colors.tab_bar_segmented = surface;
@@ -406,7 +409,9 @@ pub fn apply_theme(theme_mode: &str, high_contrast: bool, cx: &mut App) {
     colors.switch = border;
     colors.switch_thumb = fg;
     colors.skeleton = border;
-    colors.tiles = surface;
+    // NOTE: kit 0.6.1 had a `tiles` token for its Tile widget; 0.6.6
+    // removed both. App tiles/cards are plain bordered Divs (theme::card),
+    // so nothing needs a replacement here.
     colors.group_box = surface;
     colors.group_box_foreground = fg;
     colors.accordion = fg;
@@ -492,18 +497,33 @@ fn maximize_contrast(pal: &mut Palette, light_base: bool) {
     pal.border = pal.fg;
     pal.muted_fg = pal.fg;
     // Pick each filled-hue label (black or white) with the better ratio.
-    let best_on = |c: u32| {
-        if contrast_ratio(0x00_00_00_ff, c) >= contrast_ratio(0xff_ff_ff_ff, c) {
-            0x00_00_00_ff
-        } else {
-            0xff_ff_ff_ff
-        }
-    };
     pal.accent_fg = best_on(pal.accent);
     pal.danger_fg = best_on(pal.danger);
     pal.success_fg = best_on(pal.success);
     pal.warning_fg = best_on(pal.warning);
     pal.info_fg = best_on(pal.info);
+}
+
+/// Pure black or white, whichever reads better on `c`.
+fn best_on(c: u32) -> u32 {
+    if contrast_ratio(0x00_00_00_ff, c) >= contrast_ratio(0xff_ff_ff_ff, c) {
+        0x00_00_00_ff
+    } else {
+        0xff_ff_ff_ff
+    }
+}
+
+/// Keep the designed label when it already reads (WCAG AA) on its fill;
+/// otherwise fall back to pure black/white — whichever contrasts. This is
+/// the white-on-white guard: a near-white fill always gets black text, a
+/// near-black fill always gets white text, no matter which theme or
+/// overlay produced the pair.
+fn readable_label(fill: u32, label: u32) -> u32 {
+    if contrast_ratio(label, fill) >= 4.5 {
+        label
+    } else {
+        best_on(fill)
+    }
 }
 
 /// Relative luminance of an sRGB color (WCAG 2.1 definition). Pure.
@@ -537,12 +557,19 @@ pub fn contrast_ratio(a: u32, b: u32) -> f32 {
 
 /// Effective palette for a mode + overlay (what `apply_theme` installs).
 /// Exposed for tests and for views that need contrast-safe hardcoded colors.
+/// Filled-hue labels pass through [`readable_label`] so no theme/overlay
+/// combination can ship an unreadable button (e.g. white-on-white).
 pub fn effective_palette(theme_mode: &str, high_contrast: bool) -> Palette {
     let mode = ThemeModeExt::from_str(theme_mode);
     let mut pal = palette_for(mode);
     if high_contrast {
         maximize_contrast(&mut pal, mode.is_light());
     }
+    pal.accent_fg = readable_label(pal.accent, pal.accent_fg);
+    pal.danger_fg = readable_label(pal.danger, pal.danger_fg);
+    pal.success_fg = readable_label(pal.success, pal.success_fg);
+    pal.warning_fg = readable_label(pal.warning, pal.warning_fg);
+    pal.info_fg = readable_label(pal.info, pal.info_fg);
     pal
 }
 
@@ -733,6 +760,44 @@ mod tests {
             );
             let hint = contrast_ratio(pal.muted_fg, pal.bg);
             assert!(hint >= 4.5, "{mode}: muted ratio {hint:.2} < 4.5");
+        }
+    }
+
+    /// Every button variant label reads on its fill in every base theme
+    /// (both plain and high-contrast): the white-on-white Dark regression
+    /// can never ship again. Light fills always carry black text.
+    #[test]
+    fn dark_button_labels_always_readable() {
+        for mode in THEME_ORDER {
+            for hc in [false, true] {
+                let pal = effective_palette(mode, hc);
+                // (variant, fill, label): primary/accent + default/secondary
+                // + all four semantic fills share the button surface rules.
+                let pairs = [
+                    ("primary", pal.accent, pal.accent_fg),
+                    ("default", pal.surface, pal.fg),
+                    ("secondary", pal.surface, pal.fg),
+                    ("danger", pal.danger, pal.danger_fg),
+                    ("success", pal.success, pal.success_fg),
+                    ("warning", pal.warning, pal.warning_fg),
+                    ("info", pal.info, pal.info_fg),
+                ];
+                for (name, fill, label) in pairs {
+                    let r = contrast_ratio(label, fill);
+                    assert!(
+                        r >= 4.5,
+                        "{mode} hc={hc}: {name} label ratio {r:.2} < 4.5"
+                    );
+                    // Near-white fills must carry dark text (never
+                    // white-on-white); near-black fills white text.
+                    if luminance(fill) > 0.5 {
+                        assert!(
+                            luminance(label) < 0.35,
+                            "{mode} hc={hc}: light {name} fill must use dark text"
+                        );
+                    }
+                }
+            }
         }
     }
 
