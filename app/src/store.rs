@@ -4531,15 +4531,19 @@ pub(crate) mod tests {
     /// nested message loop while open, and a UI-thread dialog lets
     /// background timers re-enter the app borrow (`RefCell already
     /// borrowed`, see crash.log). The headless executor runs worker tasks
-    /// on the test thread, so thread ids can't prove the hop here —
-    /// instead the ordering log proves the dialog runs ASYNCHRONOUSLY
-    /// (after `spawn_file_pick` returns, never inline inside the UI
-    /// borrow). In production the hop lands on a real worker pool (the
-    /// `Send + 'static` bound on `pick` is compile-enforced).
+    /// on threads, so thread ids can't prove the hop here — instead a
+    /// gate channel makes the ordering DETERMINISTIC (no scheduling race
+    /// under load): the stub blocks until the test closes the gate after
+    /// `spawn_file_pick` returns, so "spawn-returned before pick-ran" holds
+    /// by construction. In production the hop lands on a real worker pool
+    /// (the `Send + 'static` bound on `pick` is compile-enforced). If the
+    /// call were ever inlined, the stub would stall the 30s timeout inside
+    /// the call and the mid-assert below would fail.
     #[test]
     fn file_pick_runs_async_never_inline_and_stages() {
         use gpui_kit::TestApp;
         use std::sync::{Arc, Mutex};
+        use std::time::Duration;
         let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = hermetic_prefs(r#"{}"#);
         let mut t = TestApp::new();
@@ -4547,19 +4551,31 @@ pub(crate) mod tests {
         let log = Arc::new(Mutex::new(Vec::new()));
         let pick_log = log.clone();
         let ret_log = log.clone();
+        let (gate_tx, gate_rx) = std::sync::mpsc::channel::<()>();
         t.update(|cx| {
             crate::views_input::spawn_file_pick(
                 store.clone(),
                 move || {
+                    // Block until the test proves the call returned. The
+                    // timeout only fires in the inlined (buggy) world, where
+                    // it still fails below instead of hanging CI forever.
+                    let _ = gate_rx.recv_timeout(Duration::from_secs(30));
                     pick_log.lock().unwrap().push("pick-ran");
                     Some(vec![PathBuf::from("picked-dialog.wav")])
                 },
                 cx,
             );
-            // Still inside the UI borrow: an inlined dialog would already
-            // have run (and, in production, panicked the borrow).
+            // Still inside the UI borrow: the gated stub cannot have run
+            // yet, so this order is structural, not scheduling luck.
             ret_log.lock().unwrap().push("spawn-returned");
+            assert_eq!(
+                *ret_log.lock().unwrap(),
+                vec!["spawn-returned"],
+                "spawn_file_pick must return before the dialog runs"
+            );
+            drop(gate_tx);
         });
+        t.run_until_parked();
         assert_eq!(
             *log.lock().unwrap(),
             vec!["spawn-returned", "pick-ran"],
@@ -4573,11 +4589,13 @@ pub(crate) mod tests {
 
     /// Same async-not-inline guarantee for folder pickers (Settings browses
     /// share the crash class): the stub dialog runs after return, the stub
-    /// apply lands back on the UI thread.
+    /// apply lands back on the UI thread. Gated like the file-picker test
+    /// above — deterministic under load, never scheduling luck.
     #[test]
     fn folder_pick_runs_async_never_inline_and_applies() {
         use gpui_kit::TestApp;
         use std::sync::{Arc, Mutex};
+        use std::time::Duration;
         fn apply(store: gpui_kit::Entity<Store>, p: String, cx: &mut gpui_kit::App) {
             store.update(cx, |s, cx| {
                 s.status = format!("picked {p}");
@@ -4591,10 +4609,12 @@ pub(crate) mod tests {
         let log = Arc::new(Mutex::new(Vec::new()));
         let pick_log = log.clone();
         let ret_log = log.clone();
+        let (gate_tx, gate_rx) = std::sync::mpsc::channel::<()>();
         t.update(|cx| {
             crate::views_settings::spawn_folder_pick_with(
                 store.clone(),
                 move || {
+                    let _ = gate_rx.recv_timeout(Duration::from_secs(30));
                     pick_log.lock().unwrap().push("pick-ran");
                     Some(PathBuf::from("picked-dir"))
                 },
@@ -4602,7 +4622,14 @@ pub(crate) mod tests {
                 cx,
             );
             ret_log.lock().unwrap().push("spawn-returned");
+            assert_eq!(
+                *ret_log.lock().unwrap(),
+                vec!["spawn-returned"],
+                "spawn_folder_pick must return before the dialog runs"
+            );
+            drop(gate_tx);
         });
+        t.run_until_parked();
         assert_eq!(
             *log.lock().unwrap(),
             vec!["spawn-returned", "pick-ran"],
