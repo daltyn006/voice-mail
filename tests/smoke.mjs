@@ -296,7 +296,7 @@ ok(src('app/src/store.rs').includes('spawn_boot_verify') && src('pv-backend/src/
 ok(src('app/src/store.rs').includes('restore_staged') && src('pv-backend/src/prefs.rs').includes('staged'), 'staged queue persists across restarts');
 ok(src('pv-backend/src/update.rs').includes('check_blocking') && src('app/src/views_settings.rs').includes('check-updates'), 'manual update check, user-initiated only');
 ok(src('pv-backend/src/update.rs').includes('pick_installer') && src('pv-backend/src/update.rs').includes('.msi'), 'update check points at the MSI installer asset');
-ok(src('app/Cargo.toml').includes('upgrade-code'), 'MSI carries a stable upgrade-code (major upgrades, never side-by-side)');
+ok(!src('app/Cargo.toml').includes('upgrade-code ='), 'no upgrade-code field (cargo-packager 0.11 rejects it; the MSI upgrade code is tool-derived stable from the binary name)');
 ok(src('core/src/audio_ffmpeg.cpp').includes('qarg') && !src('core/src/audio_ffmpeg.cpp').includes('-i \\"'), 'ffmpeg spawn lines are quote-escaped (no raw -i interpolation)');
 ok(src('core/CMakeLists.txt').includes('set(GGML_VULKAN ${_PV_VULKAN} CACHE BOOL "" FORCE)') && src('core/CMakeLists.txt').includes('PV_GPU_VENDOR'), 'Vulkan flags forced from detection (stale -D can never wedge configure)');
 ok(src('core/src/audio_ffmpeg.cpp').includes('RF64') && src('core/src/audio_ffmpeg.cpp').includes('ds64'), 'WAV reader accepts RF64/ds64 with EOF clamp');

@@ -83,8 +83,8 @@ preinstall-section = """
 """
 appdata-paths = ["$LOCALAPPDATA/voice mail"]
 
-# MSI-single (full per-machine installer) + the feed-driven update path both
-# rely on this stable upgrade code: reinstalling a newer MSI is a major
-# upgrade, never a second install. NEVER change this GUID.
-[package.metadata.packager.wix]
-upgrade-code = "D8E1D4F5-7BC7-4B9C-A97E-F896B2E186B7"
+# MSI upgrades: cargo-packager derives the upgrade code deterministically
+# (UUID v5 over the binary name), so reinstalling a newer MSI is a major
+# upgrade, never a second install — as long as the binary name below stays
+# `voice-mail`. There is deliberately NO [packager.wix] section: 0.11.x
+# rejects an `upgrade-code` field outright (config parse aborts packaging).
