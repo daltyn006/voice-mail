@@ -633,7 +633,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-
     /// Wizard owns its scroll box outside the page slot: same bounded +
     /// wheel-moves-content contract at small windows.
     #[gpui_kit::test]
