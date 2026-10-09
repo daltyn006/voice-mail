@@ -71,7 +71,7 @@ target = "guides/detailed.md"
 
 [package.metadata.packager.nsis]
 installMode = "perMachine"
-installer-icon = "../assets/voice.ico"
+installer-icon = "../assets/voice-mail.ico"
 # Per-machine single folder: grant standard users write access up front
 # (inheritance covers files copied later), so models/output work for everyone.
 # Uninstaller offers to remove $LOCALAPPDATA data via appdata-paths.

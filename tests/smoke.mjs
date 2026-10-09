@@ -231,6 +231,19 @@ for (const f of ['views_input.rs','views_record.rs','views_output.rs','views_mod
 ok(src('app/src/theme.rs').includes('gruvbox_dark') && src('app/src/theme.rs').includes('coffee_light'), 'gruvbox + coffee appearances exist');
 ok(src('app/src/theme.rs').includes('high_contrast') && src('pv-backend/src/prefs.rs').includes('high_contrast'), 'high-contrast overlay persisted');
 ok(src('app/src/theme.rs').includes('ScrollbarMode::Always'), 'scrollbars stay visible on overflow');
+// NSIS aborts the whole package on a non-ICO installer icon (assets/
+// voice.ico was a renamed PNG). Guard the magic bytes, not just presence.
+ok(!existsSync('assets/voice.ico'), 'stale voice.ico removed (was a PNG, broke makensis)');
+{
+  const m = src('app/Cargo.toml').match(/installer-icon\s*=\s*"([^"]+)"/);
+  ok(!!m, 'NSIS installer-icon configured');
+  let magic = false;
+  try {
+    const buf = readFileSync('app/' + m[1].replace(/^\.\//, ''));
+    magic = buf.length > 4 && buf[0] === 0 && buf[1] === 0 && buf[2] === 1 && buf[3] === 0;
+  } catch { magic = false; }
+  ok(magic, 'NSIS installer-icon is a real ICO (00 00 01 00 magic)');
+}
 // Both-axis Scrollables (row-direction area) never engage vertical
 // scrolling in this kit version — pages must use single-axis scrollers
 // (vertical page boxes; horizontal only for fixed-content strips).
