@@ -1,7 +1,7 @@
 [package]
 publish = false
 name = "voice-mail"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 
 [[bin]]
@@ -12,10 +12,10 @@ path = "src/main.rs"
 # UI pins (see PINS.md): depend on the gpui-kit facade ONLY — it re-exports
 # the matching gpui-pre/gpui-component set, so no version can drift apart.
 # Code says `use gpui_kit::...` throughout; direct gpui deps are banned.
-gpui-kit = "=0.6.1"
+gpui-kit = "=0.6.4"
 pv-backend = { path = "../pv-backend" }
 # Native file dialogs (replaces the Tauri dialog plugin).
-rfd = "0.15"
+rfd = "0.17"
 # Backend→UI event bridge (blocking backend rx, async UI task).
 async-channel = "2"
 
@@ -23,14 +23,14 @@ async-channel = "2"
 # Windows exe icon (app.rc → assets/voice-mail.ico).
 embed-resource = "=3.0.11"
 
-# ---- cargo-packager config (M5): NSIS per-machine exe + per-user MSI ----
+# ---- cargo-packager config (M5): NSIS per-machine exe + per-machine MSI ----
 # Paths are relative to this file. NSIS/Wix place `resources` beside the exe,
 # which matches the exe-dir-first resolution in pv-backend + audio_ffmpeg.
 # Program only: no models/, no scripts/ — models install separately via the
 # in-app downloader, then the app runs fully offline.
 [package.metadata.packager]
 product-name = "voice mail"
-version = "0.1.0"
+version = "1.0.1"
 identifier = "com.presentvoice.app"
 description = "Batch transcribe + summarize lectures. Works fully offline after models."
 category = "Productivity"
@@ -76,3 +76,9 @@ preinstall-section = """
     SectionEnd
 """
 appdata-paths = ["$LOCALAPPDATA/voice mail"]
+
+# MSI-single (full per-machine installer) + the feed-driven update path both
+# rely on this stable upgrade code: reinstalling a newer MSI is a major
+# upgrade, never a second install. NEVER change this GUID.
+[package.metadata.packager.wix]
+upgrade-code = "D8E1D4F5-7BC7-4B9C-A97E-F896B2E186B7"

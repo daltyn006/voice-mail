@@ -16,7 +16,7 @@ jobs:
   supply-chain:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Toolchains
         run: rustup default stable
@@ -41,7 +41,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -49,9 +49,17 @@ jobs:
         run: rustup default stable
         shell: pwsh
 
-      - name: Vulkan SDK (best effort, CPU fallback otherwise)
-        continue-on-error: true
-        run: choco install vulkan-sdk -y
+      - name: Vulkan SDK (required — releases ship GPU backends)
+        # No continue-on-error: a silent SDK miss used to ambush cmake
+        # later inside ggml-vulkan's non-optional find_package(Vulkan).
+        # Exports VULKAN_SDK + Bin (glslc) for all later steps.
+        run: |
+          choco install vulkan-sdk -y
+          $vkRoot = Get-ChildItem 'C:\VulkanSDK' -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $vkRoot) { Write-Error 'Vulkan SDK install produced no C:\VulkanSDK\<version> dir'; exit 1 }
+          "VULKAN_SDK=$($vkRoot.FullName)" >> $env:GITHUB_ENV
+          "$($vkRoot.FullName)\Bin" >> $env:GITHUB_PATH
+          if (!(Test-Path (Join-Path $vkRoot.FullName 'Bin\glslc.exe'))) { Write-Error 'glslc.exe missing from Vulkan SDK Bin (FindVulkan needs it)'; exit 1 }
         shell: pwsh
 
       - name: FFmpeg + sqlite
@@ -83,8 +91,10 @@ jobs:
         shell: pwsh
 
       - name: Build core DLL
+        # No -D Vulkan flags: core/CMakeLists detects vendor + SDK itself
+        # (GPU-less CI runners correctly land CPU-only).
         run: |
-          cmake -S . -B core/build -A x64 -DGGML_VULKAN=ON -DLLAMA_VULKAN=ON
+          cmake -S . -B core/build -A x64
           cmake --build core/build --config Release
         shell: pwsh
 
@@ -149,21 +159,21 @@ jobs:
 
       - name: Upload NSIS installer (program only, no models, no scripts)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PresentVoice-Setup
           path: dist/nsis/*.exe
 
       - name: Upload MSI installer (program only, no models, no scripts)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PresentVoice-MSI
           path: dist/msi/*.msi
 
       - name: Upload SBOM + checksums
         if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PresentVoice-SBOM
           path: |
@@ -172,7 +182,7 @@ jobs:
 
       - name: GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/nsis/*.exe

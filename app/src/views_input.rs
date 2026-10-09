@@ -11,7 +11,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::ExternalPaths;
 use gpui_kit::assets::IconName;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, rgba, Context, Entity, FontWeight, IntoElement, Render, Window};
+use gpui_kit::{div, px, rgba, App, Context, Entity, FontWeight, IntoElement, Render, Window};
 
 use crate::store::{InputFile, ProcFile, Store, ViewMode, AUDIO_EXTS, DOC_EXTS, PROJECT_EXTS, VIDEO_EXTS};
 use crate::theme;
@@ -54,6 +54,32 @@ fn pick_video_files() -> Option<Vec<std::path::PathBuf>> {
         .set_title("Add video (watched in place — never copied or deleted)")
         .add_filter("Video", VIDEO_EXTS)
         .pick_files()
+}
+
+/// Open a blocking native file dialog OFF the UI thread, then stage the
+/// result back on it. `rfd` pumps a nested Windows message loop while open;
+/// calling it inside an `on_click` borrow lets background timers (cursor
+/// blink, event pump) re-enter the app borrow and panic with
+/// `RefCell already borrowed` (see crash.log). The dialog runs on a worker
+/// thread while the UI thread stays free, so no re-entrancy is possible.
+fn spawn_file_pick<F>(store: Entity<Store>, pick: F, cx: &mut App)
+where
+    F: FnOnce() -> Option<Vec<std::path::PathBuf>> + Send + 'static,
+{
+    crate::shutdown_trace("file dialog opened (off-thread)");
+    cx.spawn(async move |cx| {
+        let picked = cx.background_executor().spawn(async move { pick() }).await;
+        crate::shutdown_trace("file dialog closed");
+        if let Some(paths) = picked {
+            cx.update(|cx| {
+                store.update(cx, |s, cx| {
+                    s.add_files(paths);
+                    cx.notify();
+                });
+            });
+        }
+    })
+    .detach();
 }
 
 fn start_button(
@@ -514,12 +540,7 @@ impl Render for InputView {
                         .on_click({
                             let store = self.store.clone();
                             move |_, _, cx| {
-                                if let Some(paths) = pick_audio_files() {
-                                    store.update(cx, |s, cx| {
-                                        s.add_files(paths);
-                                        cx.notify();
-                                    });
-                                }
+                                spawn_file_pick(store.clone(), pick_audio_files, cx);
                             }
                         }),
                 )
@@ -531,12 +552,7 @@ impl Render for InputView {
                         .on_click({
                             let store = self.store.clone();
                             move |_, _, cx| {
-                                if let Some(paths) = pick_doc_files() {
-                                    store.update(cx, |s, cx| {
-                                        s.add_files(paths);
-                                        cx.notify();
-                                    });
-                                }
+                                spawn_file_pick(store.clone(), pick_doc_files, cx);
                             }
                         }),
                 )
@@ -548,12 +564,7 @@ impl Render for InputView {
                         .on_click({
                             let store = self.store.clone();
                             move |_, _, cx| {
-                                if let Some(paths) = pick_video_files() {
-                                    store.update(cx, |s, cx| {
-                                        s.add_files(paths);
-                                        cx.notify();
-                                    });
-                                }
+                                spawn_file_pick(store.clone(), pick_video_files, cx);
                             }
                         }),
                 )
@@ -617,10 +628,14 @@ impl Render for InputView {
                         ),
                 );
                 if show {
-                    for e in errs.iter().rev().take(8) {
+                    // Newest first, capped; the list owns a bounded scroll
+                    // box so a long error history never pushes the page
+                    // past the window (the page scroller stays the outer).
+                    let mut rows = Vec::new();
+                    for e in errs.iter().rev().take(30) {
                         let id = e.id;
                         let store = self.store.clone();
-                        body = body.child(
+                        rows.push(
                             h_flex()
                                 .gap_2()
                                 .child(
@@ -643,6 +658,14 @@ impl Render for InputView {
                                 ),
                         );
                     }
+                    body = body.child(
+                        v_flex()
+                            .gap_1()
+                            .max_h(px(320.))
+                            .overflow_y_scrollbar()
+                            .id("error-scroll")
+                            .children(rows),
+                    );
                 }
             }
         }
@@ -905,11 +928,12 @@ impl Render for InputView {
         // Page-level scroll (matches Settings): the root gives this page a
         // bounded flex slot, so the staged list + progress scroll instead of
         // overflowing the window. Nav stays fixed — only this body scrolls.
+        // Both axes: narrow windows scroll sideways instead of clipping.
         let store_d = self.store.clone();
         div()
             .flex_1()
             .h_full()
-            .overflow_y_scrollbar()
+            .overflow_scrollbar()
             .id("input-scroll")
             .child(body)
             .on_drop(move |paths: &ExternalPaths, _, cx| {

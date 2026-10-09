@@ -199,10 +199,37 @@ pub fn fallback_complete(role: &str, exclude: &str) -> Option<String> {
     None
 }
 
-/// Verify the active pair (+VLM when set). Returns `(stt_id, llm_id, warnings)`.
-/// Warnings are human lines for the status line / Error Center. Never fails
-/// the boot itself — worst case both ids stay as-is with warnings attached.
-pub fn verify_active_boot() -> (Option<String>, Option<String>, Vec<String>) {
+/// A boot-verification finding. `advisory` = informational only
+/// (unpinned size-only check, linked Ollama blob, community sidecar):
+/// status-line note, never an Error Center entry. Real problems
+/// (missing/quarantined weights) are not advisory.
+#[derive(Clone, Debug)]
+pub struct BootWarning {
+    pub advisory: bool,
+    pub text: String,
+}
+
+impl BootWarning {
+    fn notice(text: String) -> Self {
+        BootWarning {
+            advisory: true,
+            text,
+        }
+    }
+    fn error(text: String) -> Self {
+        BootWarning {
+            advisory: false,
+            text,
+        }
+    }
+}
+
+/// Verify the active pair (+VLM when set). Returns `(stt_id, llm_id, findings)`.
+/// Findings are human lines for the status line / Error Center. Never fails
+/// the boot itself — worst case both ids stay as-is with findings attached.
+/// Advisory findings (unpinned/size-only/linked) are status-line notes;
+/// only real problems land in the Error Center upstream.
+pub fn verify_active_boot() -> (Option<String>, Option<String>, Vec<BootWarning>) {
     let dir = crate::dirs::models_dir();
     let man = crate::manifest::read(&dir);
     let mut warn = Vec::new();
@@ -233,34 +260,34 @@ pub fn verify_active_boot() -> (Option<String>, Option<String>, Vec<String>) {
                     .map(|(_, _, _, expected)| expected.is_empty())
                     .unwrap_or(false);
                 if unpinned {
-                    warn.push(format!(
+                    warn.push(BootWarning::notice(format!(
                         "Model {id} has no pinned hash yet — size-only check (populate sha256 pins before release)."
-                    ));
+                    )));
                 }
             }
             VerifyOne::OkUnpinned => {
-                warn.push(format!(
+                warn.push(BootWarning::notice(format!(
                     "Unverified community model active ({id}) — weights are user-supplied, not pinned."
-                ));
+                )));
             }
             VerifyOne::Missing(m) => {
-                warn.push(format!("Model issue ({role} {id}): {m}"));
+                warn.push(BootWarning::error(format!("Model issue ({role} {id}): {m}")));
                 if let Some(fb) = fallback_complete(role, &id) {
-                    warn.push(format!(
+                    warn.push(BootWarning::error(format!(
                         "Primary {role} model unavailable — falling back to {fb}. Re-download required."
-                    ));
+                    )));
                     *slot = Some(fb);
                 }
             }
             VerifyOne::Quarantined(q) => {
-                warn.push(format!(
+                warn.push(BootWarning::error(format!(
                     "Primary {role} model corrupted — quarantined to {}. Re-download required.",
                     q.display()
-                ));
+                )));
                 if let Some(fb) = fallback_complete(role, &id) {
-                    warn.push(format!(
+                    warn.push(BootWarning::error(format!(
                         "Recording with fallback {role} model {fb}."
-                    ));
+                    )));
                     *slot = Some(fb);
                 } else {
                     *slot = None;
