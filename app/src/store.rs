@@ -4517,12 +4517,19 @@ pub(crate) mod tests {
             assert!(prefs.staged.iter().any(|p| p == &wav.to_string_lossy().to_string()), "prefs not persisted");
         }
         // Retry creating Store until staged queue is restored (CI fsync timing)
-        let s2 = loop {
-            let s2 = Store::new();
-            if s2.input.len() == 1 {
-                break s2;
+        let s2 = {
+            let mut attempts = 0;
+            loop {
+                let s2 = Store::new();
+                if s2.input.len() == 1 {
+                    break s2;
+                }
+                attempts += 1;
+                if attempts > 100 {
+                    panic!("staged queue not restored after 5s (100 attempts) — prefs persistence failed");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
             }
-            std::thread::sleep(std::time::Duration::from_millis(50));
         };
         assert_eq!(s2.input[0].path, wav);
         std::fs::remove_file(&wav).unwrap();
