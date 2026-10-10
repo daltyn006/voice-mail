@@ -62,13 +62,24 @@ jobs:
           if (!(Test-Path (Join-Path $vkRoot.FullName 'Bin\glslc.exe'))) { Write-Error 'glslc.exe missing from Vulkan SDK Bin (FindVulkan needs it)'; exit 1 }
         shell: pwsh
 
+      - name: Cache ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg-dlls
+          key: ffmpeg-dlls-${{ runner.os }}-${{ hashFiles('scripts/setup-windows.ps1') }}
+
       - name: FFmpeg + sqlite
         run: |
-          choco install ffmpeg -y
-          New-Item -ItemType Directory -Force ffmpeg-dlls | Out-Null
-          $ff = (Get-Command ffmpeg).Source; $d = Split-Path $ff
-          Copy-Item (Join-Path $d 'ffmpeg.exe') ffmpeg-dlls/
-          Copy-Item (Join-Path $d '*.dll') ffmpeg-dlls/
+          if (-not (Test-Path ffmpeg-dlls/ffmpeg.exe)) {
+            Write-Host "Installing ffmpeg via winget..."
+            winget install Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+            $ff = (Get-Command ffmpeg).Source; $d = Split-Path $ff
+            New-Item -ItemType Directory -Force ffmpeg-dlls | Out-Null
+            Copy-Item (Join-Path $d 'ffmpeg.exe') ffmpeg-dlls/ -Force
+            Copy-Item (Join-Path $d '*.dll') ffmpeg-dlls/ -Force
+          } else {
+            Write-Host "Using cached ffmpeg"
+          }
           New-Item -ItemType Directory -Force core/thirdparty/sqlite | Out-Null
           Invoke-WebRequest https://www.sqlite.org/2024/sqlite-amalgamation-3460100.zip -OutFile $env:TEMP/sqlite.zip
           Expand-Archive $env:TEMP/sqlite.zip core/thirdparty/sqlite -Force
