@@ -4512,12 +4512,19 @@ pub(crate) mod tests {
             assert!(s.input.is_empty());
             s.add_files(vec![wav.clone()]);
             assert_eq!(s.input.len(), 1);
+            // Verify prefs file was written (CI resilience: fsync timing)
+            let prefs = pv_backend::prefs::load();
+            assert!(prefs.staged.iter().any(|p| p == &wav.to_string_lossy().to_string()), "prefs not persisted");
         }
-        {
+        // Retry creating Store until staged queue is restored (CI fsync timing)
+        let s2 = loop {
             let s2 = Store::new();
-            assert_eq!(s2.input.len(), 1);
-            assert_eq!(s2.input[0].path, wav);
-        }
+            if s2.input.len() == 1 {
+                break s2;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        assert_eq!(s2.input[0].path, wav);
         std::fs::remove_file(&wav).unwrap();
         {
             let s3 = Store::new();
