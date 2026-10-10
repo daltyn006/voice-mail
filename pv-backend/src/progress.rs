@@ -82,6 +82,13 @@ pub enum Event {
     UpdateCheck {
         message: String,
     },
+    /// Update installer downloaded + hash-verified, ready to run (worker
+    /// thread). The UI layer launches it elevated, flushes state, and
+    /// exits — an MSI cannot replace a running exe. Carries the staged
+    /// installer path (single-use file under the OS temp dir).
+    UpdateInstalled {
+        path: String,
+    },
     /// Background Ollama link-hash check finished (worker thread, spawned at
     /// link time — multi-GB blobs must never hash on the UI thread). `ok`
     /// means the blob hashes to its manifest digest; a mismatch drops the

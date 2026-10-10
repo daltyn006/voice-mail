@@ -239,6 +239,8 @@ fn staged_tile(
     tile = tile.child(
         h_flex()
             .gap_2()
+            .flex_wrap()
+            .min_w(px(0.))
             .child(merge_check(f.id, checked, store.clone()))
             .child(match warning {
                 Some(reason) => warn_button("row", path_str, reason, store.clone()),
@@ -263,7 +265,8 @@ fn staged_list_row(
         .gap(px(theme::SPACE_SM))
         .p_1()
         .flex_1()
-        .min_w(px(200.))
+        .flex_wrap()
+        .min_w(px(160.))
         .bg(rgba(theme::surface(theme, hc)))
         .border_1()
         .border_color(rgba(theme::border(theme, hc)))
@@ -297,7 +300,7 @@ fn staged_details_row(
     let path_str = f.path.to_string_lossy().to_string();
     h_flex()
         .gap(px(theme::SPACE_SM))
-        .flex_wrap()
+        .flex_wrap().min_w(px(0.))
         .p_1()
         .bg(rgba(theme::surface(theme, hc)))
         .border_1()
@@ -389,7 +392,7 @@ fn active_file_card(
         .child(
             h_flex()
                 .gap_2()
-                .flex_wrap()
+                .flex_wrap().min_w(px(0.))
                 .child(div().child(format!("Voice→Text: {pct_stt}%")).font_weight(FontWeight::SEMIBOLD))
                 .child(Progress::new(format!("sum-{}", id)).value(pf.sum.clamp(0.0, 100.0)))
                 .child(div().child(format!("Text→Summary: {pct_sum}%")).font_weight(FontWeight::SEMIBOLD)),
@@ -399,7 +402,7 @@ fn active_file_card(
         .child(
             h_flex()
                 .gap_2()
-                .flex_wrap()
+                .flex_wrap().min_w(px(0.))
                 .child(
                     Button::new(format!("pause-{id}"))
                         .icon(IconName::Pause)
@@ -462,7 +465,7 @@ fn global_toolbar(store: Entity<Store>) -> impl IntoElement {
     let store_continue = store.clone();
     h_flex()
         .gap_2()
-        .flex_wrap()
+        .flex_wrap().min_w(px(0.))
         .child(
             Button::new("pause-all")
                 .label("Pause All")
@@ -531,7 +534,7 @@ impl Render for InputView {
         body = body.child(
             h_flex()
                 .gap_2()
-                .flex_wrap()
+                .flex_wrap().min_w(px(0.))
                 .child(
                     Button::new("add-files")
                         .label("Add audio")
@@ -690,7 +693,7 @@ impl Render for InputView {
                 body = body.child(
                     h_flex()
                         .gap_2()
-                        .flex_wrap()
+                        .flex_wrap().min_w(px(0.))
                         .child(div().child(label).font_weight(FontWeight::BOLD))
                         .child(
                             Button::new(format!("mg-e-{key}"))
@@ -752,7 +755,7 @@ impl Render for InputView {
                 body = body.child(
                     h_flex()
                         .gap_2()
-                        .flex_wrap()
+                        .flex_wrap().min_w(px(0.))
                         .child(div().child(label).font_weight(FontWeight::SEMIBOLD))
                         .child(
                             Button::new(format!("sg-m-{key}"))
@@ -790,11 +793,11 @@ impl Render for InputView {
                 body = body.child(
                     h_flex()
                         .gap_2()
-                        .flex_wrap()
+                        .flex_wrap().min_w(px(0.))
                         .child(div().child(format!("{sel} selected for merge")).font_weight(FontWeight::BOLD))
                         .child(
                             Button::new("mg-sel-e")
-                                .label("Merge selected: Executive")
+                                .label("Executive")
                                 .primary()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .on_click(move |_, _, cx| {
@@ -811,7 +814,7 @@ impl Render for InputView {
                         )
                         .child(
                             Button::new("mg-sel-l")
-                                .label("Merge selected: Long")
+                                .label("Long")
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .on_click(move |_, _, cx| {
                                     let s2 = s2.clone();
@@ -904,7 +907,7 @@ impl Render for InputView {
                 .flex()
                 .flex_row()
                 .gap_2()
-                .flex_wrap()
+                .flex_wrap().min_w(px(0.))
                 .children(rows)
                 .into_any_element(),
         });
@@ -923,17 +926,22 @@ impl Render for InputView {
             );
         }
 
-        // OS drag-and-drop: files/folders from Explorer land here (folders
-        // expand via add_dropped; the root id makes this a drop target).
         // Page-level scroll (matches Settings): the root gives this page a
         // bounded flex slot, so the staged list + progress scroll instead of
         // overflowing the window. Nav stays fixed — only this body scrolls.
-        // Both axes: narrow windows scroll sideways instead of clipping.
+        // Vertical-only: the kit Both-axis area (row-direction) never
+        // engages vertical scrolling; horizontal fit comes from the
+        // min-width:0 cascade below (wrap rows + fitting floors), so no
+        // horizontal scroller is needed. Trailing scroll-test anchor (1px).
+        body = body.child(crate::views::page_bottom_marker());
+        // OS drag-and-drop: files/folders from Explorer land here (folders
+        // expand via add_dropped; the root id makes this a drop target).
         let store_d = self.store.clone();
         div()
             .flex_1()
-            .h_full()
-            .overflow_scrollbar()
+            .min_h(px(0.))
+            .min_w(px(0.))
+            .overflow_y_scrollbar()
             .id("input-scroll")
             .child(body)
             .on_drop(move |paths: &ExternalPaths, _, cx| {

@@ -2,11 +2,12 @@
 //! processing progress and controls live on the Input page after Start.
 
 use gpui_kit::assets::IconName;
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::sidebar::{Sidebar, SidebarMenu, SidebarMenuItem};
 use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, px, rgba, Animation, AnimationExt, Context, Div, Entity, IntoElement, Render, Window,
+    div, px, rgba, Animation, AnimationExt, Context, Entity, IntoElement, Render, Window,
 };
 
 use crate::store::{Page, Store};
@@ -28,6 +29,11 @@ pub struct RootView {
     settings: Entity<SettingsView>,
     wizard: Entity<WizardView>,
 }
+
+/// Viewport widths below this render the tab bar even when the sidebar
+/// preference is set: the fixed 200px menu would leave no body to show.
+/// The preference itself is untouched — wide windows keep the sidebar.
+const SIDEBAR_MIN_WIDTH: f32 = 560.;
 
 impl RootView {
     /// Assembled by `main` (which owns the window borrow); see module docs.
@@ -122,23 +128,34 @@ impl RootView {
     /// windows to a single column; both scroll axes live on the page
     /// scroller itself (never clip here — clipped content with no scroller
     /// above it is unreachable).
-    fn body_slot(body: gpui_kit::AnyElement) -> Div {
-        // `min_h(0)` is load-bearing: a flex item's automatic minimum height
-        // is its content height, so without it this slot (and the window)
-        // grows to fit the page, the inner scroller never has less room than
-        // its content, and no scrollbar appears. `flex_1()` alone (basis 0)
-        // is right; a trailing `flex_auto()` reset it to basis `auto`.
-        div().flex_1().min_w(px(0.0)).min_h(px(0.0)).child(
-            div()
-                .max_w(px(1200.0))
-                .mx_auto()
-                .w_full()
-                .min_w(px(0.0))
-                .min_h(px(0.0))
-                .p_4()
-                .h_full()
-                .child(body),
-        )
+    fn body_slot(body: gpui_kit::AnyElement) -> impl IntoElement {
+        // Flex all the way down: every level is a flex item with
+        // `flex_1() + min_h(0)`, never a `%` height. `%` heights only
+        // resolve against flex-determined sizes — a `%` child of a `%`-sized
+        // block parent collapses to content height (the window then clips it
+        // with no scroller ever engaging). The outer slot is a flex item of
+        // the root column AND a flex container, so the inner box gets a
+        // definite height to scroll inside of. `flex_1()` alone (basis 0)
+        // is right; a trailing `flex_auto()` would reset it to basis `auto`.
+        div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .min_w(px(0.0))
+            .min_h(px(0.0))
+            .child(
+                div()
+                    .max_w(px(1200.0))
+                    .mx_auto()
+                    .w_full()
+                    .min_w(px(0.0))
+                    .min_h(px(0.0))
+                    .p_4()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .child(body),
+            )
     }
 
     fn goto(&mut self, page: Page, cx: &mut Context<Self>) {
@@ -186,6 +203,16 @@ impl RootView {
     }
 }
 
+/// Bottom anchor for scroll regression tests (headless + manual): proves a
+/// page actually scrolls by moving into view on wheel input. Negligible
+/// visual footprint (1px); a single surface renders at a time so the id
+/// stays unique across the window (duplicate GPUI element ids panic).
+/// Observed for headless queries: a no-op identity wrapper in normal
+/// builds, a queryable node under `test-support`.
+pub(crate) fn page_bottom_marker() -> impl IntoElement {
+    div().id("page-bottom").h(px(1.0)).test_support()
+}
+
 /// Scroll-container registry: every full-screen surface owns exactly one
 /// page-level scroll box `(page, scroll element id)`. A surface missing
 /// here is unreachable on small windows — add the scroller AND extend this
@@ -207,14 +234,27 @@ pub fn page_scroll_ids() -> [(&'static str, &'static str); 7] {
 }
 
 impl Render for RootView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // First-run wizard takes the whole window while open (never a trap:
         // every wizard state offers import / retry / continue-without).
+        // Absolute fill, NOT a `%` height: the wizard renders directly under
+        // the kit root (a block box), where a `%` child collapses to content
+        // height and no scroller ever engages (same trap as the page slot —
+        // see `body_slot`). `inset_0` against the relatively-positioned kit
+        // root gives a definite height; the flex column then bounds the
+        // wizard's own scroll box below.
         let wizard_open = self.store.read(cx).wizard_open;
         if wizard_open {
-            return self.wizard.clone().into_any_element();
+            return div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .flex_col()
+                .min_h(px(0.0))
+                .child(self.wizard.clone().into_any_element())
+                .into_any_element();
         }
-        let (page, theme_id, high_contrast, reduce_motion, nav_seq, sidebar_mode) = {
+        let (page, theme_id, high_contrast, reduce_motion, nav_seq, sidebar_pref) = {
             let snap = self.store.read(cx);
             (
                 snap.page,
@@ -225,6 +265,9 @@ impl Render for RootView {
                 snap.nav_mode == "sidebar",
             )
         };
+        // Narrow windows fall back to tabs (see SIDEBAR_MIN_WIDTH): the
+        // menu would otherwise consume the whole viewport.
+        let sidebar_mode = sidebar_pref && window.viewport_size().width > px(SIDEBAR_MIN_WIDTH);
 
         let body: gpui_kit::AnyElement = match page {
             Page::Input => self.input.clone().into_any_element(),
@@ -244,16 +287,17 @@ impl Render for RootView {
         let body: gpui_kit::AnyElement = if reduce_motion {
             body
         } else {
-            // Sized to fill the content slot: the page-level `h_full`
-            // scrollers resolve their height through this wrapper. An
-            // unsized wrapper breaks that chain (inner scrollers go
-            // unbounded, swallow wheel events, and the page never scrolls).
-            // `min_h(0)`/`min_w(0)` are load-bearing here too: without them
+            // Sized by flex (see `body_slot`): this wrapper is a flex item
+            // of the slot, so `flex_1() + min_h(0)` gives it a definite
+            // height; a `%` height here would collapse to content height.
+            // `min_h(0)`/`min_w(0)` are load-bearing too: without them
             // this wrapper sizes to its content, the inner scroller never
             // overflows, and no scrollbar appears on small windows.
             div()
                 .w_full()
-                .h_full()
+                .flex_1()
+                .flex()
+                .flex_col()
                 .min_w(px(0.0))
                 .min_h(px(0.0))
                 .child(body)
@@ -315,7 +359,37 @@ impl Render for RootView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_kit::TestAppContext;
     use std::collections::HashSet;
+
+    /// Serializes the headless scroll tests with each other (the
+    /// models-dir override below is process-global) — one static shared
+    /// by both tests, never a per-test lock.
+    static SCROLL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// RAII for the process-global models-dir override (+ its temp dir):
+    /// cleared/removed on drop, including panic unwinds, so a failing
+    /// test can't leak its dir into tests running after it. Declare AFTER
+    /// the locks above so the override clears while they are still held.
+    struct ModelsDirGuard {
+        dir: std::path::PathBuf,
+    }
+    impl ModelsDirGuard {
+        fn take(tag: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("vm-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            pv_backend::dirs::set_models_dir_override(dir.clone());
+            ModelsDirGuard { dir }
+        }
+    }
+    impl Drop for ModelsDirGuard {
+        fn drop(&mut self) {
+            pv_backend::dirs::clear_models_dir_override();
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
 
     /// Every full-screen surface owns exactly one scroll box: no
     /// unreachable screens (the small-window Settings trap), no duplicate
@@ -334,6 +408,467 @@ mod tests {
                 scroll.ends_with("-scroll"),
                 "{page}: scroll id {scroll} must end in -scroll"
             );
+        }
+    }
+
+    /// Headless scroll regression (2026-10: vertical scroll dead on every
+    /// page — scrollers grew unbounded with their content, the window
+    /// clipped them, no bar painted, wheel did nothing). Renders the real
+    /// RootView in headless windows down to 200x200 and asserts per page:
+    /// (1) the scroller is bounded by the viewport height, (2) when content
+    /// overflows, wheel input moves it, (3) repeated wheels reach the
+    /// bottom marker (fully renderable, nothing unreachable).
+    /// Review needs live editor widgets (built in click handlers, never in
+    /// render/tests), so it carries the marker for manual checks but has no
+    /// headless case here; every other surface in `page_scroll_ids` is
+    /// covered (wizard in its own test below).
+    #[gpui_kit::test]
+    fn pages_scroll_vertically_at_small_windows(cx: &mut TestAppContext) {
+        use gpui_kit::component::Root;
+        use gpui_kit::test::TestWindowExt;
+        use gpui_kit::{
+            point, size, AnyWindowHandle, App, InputEvent, MouseMoveEvent, ScrollDelta,
+            ScrollWheelEvent,
+        };
+        use std::path::PathBuf;
+
+        use crate::store::{FileState, InputFile, InputKind, OutFile};
+
+        // Serial: the models-dir override below is process-global, and
+        // Store construction reads the live prefs file — share the store
+        // tests' locks so manifest/prefs-guarded tests never interleave.
+        // Order (PREFS before MANIFEST) matches the store suite convention.
+        // Recover from poisoning (into_inner): hermetic guards restore
+        // state on unwind, so one failing test must not fail the rest.
+        let _scroll = SCROLL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _plock = crate::store::tests::PREFS_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _mlock = crate::store::tests::MANIFEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        // Deterministic models dir (ambient downloads only add rows).
+        let _models = ModelsDirGuard::take("scroll");
+        let dir = _models.dir.clone();
+
+        let pages: [(Page, &str); 5] = [
+            (Page::Input, "input-scroll"),
+            (Page::Record, "record-scroll"),
+            (Page::Output, "output-scroll"),
+            (Page::Models, "models-scroll"),
+            (Page::Settings, "settings-scroll"),
+        ];
+        // 200x200 is the extreme small-screen case (below the prod
+        // 240px window minimum — headless only); sidebar needs width for
+        // its fixed 200px menu, so it is tabs-only there.
+        let cases: [(f32, f32, &str); 5] = [
+            (200., 200., "tabs"),
+            (800., 600., "tabs"),
+            (800., 600., "sidebar"),
+            (1100., 750., "tabs"),
+            (1100., 750., "sidebar"),
+        ];
+
+        cx.update(gpui_kit::init);
+        cx.update(|cx| crate::theme::apply_theme("dark", false, cx));
+
+        for (page, scroll_id) in pages {
+            for (w, h, nav) in cases {
+                let handle = cx.open_window(size(px(w), px(h)), |window, cx| {
+                    let store = cx.new(|_| Store::new());
+                        store.update(cx, |s, _| {
+                            s.wizard_open = false;
+                            // Direct field write (not set_nav_mode): the
+                            // setter persists prefs to disk — racy under
+                            // parallel tests and pollutes ambient state.
+                            s.nav_mode = crate::store::normalize_nav_mode(nav);
+                        // Seed long content so overflow exists to scroll.
+                        for i in 0..20u64 {
+                            s.input.push(InputFile {
+                                id: 1000 + i,
+                                path: PathBuf::from(format!("seed-{i}.wav")),
+                                state: FileState::Queued,
+                                size: 1024,
+                                kind: InputKind::Audio,
+                            });
+                            s.output.push(OutFile {
+                                id: 2000 + i,
+                                name: format!("Seed {i}"),
+                                md_name: format!("Seed {i}.md"),
+                                dir: dir.clone(),
+                                raw: "seed raw".into(),
+                                summary: "seed summary".into(),
+                                skipped: false,
+                            });
+                        }
+                        s.goto_page(page);
+                    });
+                    // Entity construction borrows `cx` sequentially: one
+                    // `cx.new` per statement so each borrow is released.
+                    let input = cx.new(|_| InputView::assemble(store.clone()));
+                    let record = cx.new(|cx| RecordView::assemble(window, cx, store.clone()));
+                    let output = OutputView::new(window, cx, store.clone());
+                    let models = ModelsView::new(cx, store.clone());
+                    let settings = SettingsView::new(window, cx, store.clone());
+                    let wizard = WizardView::new(cx, store.clone());
+                    let view = cx.new(|_| {
+                        RootView::assemble(
+                            store.clone(),
+                            input,
+                            record,
+                            output,
+                            models,
+                            settings,
+                            wizard,
+                        )
+                    });
+                    Root::new(view, window, cx)
+                });
+                // Drive the window WITHOUT leasing the root view entity:
+                // `update_window` hands over `(&mut Window, &mut App)` so a
+                // frame render inside never re-borrows the view under test
+                // (leasing it first panics with "already being updated").
+                // Wheel events go straight at viewport center: the scroller
+                // wrapper itself is unobservable (plain div id), but its
+                // subtree resolves via `within`, and the bottom marker is
+                // observed — movement + reachability prove scrolling works.
+                let any: AnyWindowHandle = handle.into();
+                cx.update(|cx| {
+                    cx.update_window(any, |_, window, cx| {
+                        window.render_frame(cx);
+                        let win_h = px(h);
+                        let win_w = px(w);
+                        // Horizontal containment, page subtree only: every
+                        // painted element under the page scroller must sit
+                        // inside the viewport width (the min-width:0 cascade
+                        // + wrapping rows make horizontal scrolling
+                        // unnecessary — nothing may be clipped sideways).
+                        // Nav chrome is out of scope: the tab bar scrolls
+                        // internally, the sidebar is fixed-width. Nested
+                        // x-scrollers (device names, waveform) are exempt —
+                        // their content is reachable by horizontal scroll by
+                        // design (proven below for the device strip).
+                        let scope_id = gpui_kit::ElementId::from(scroll_id);
+                        let x_strips = ["rec-devices-x"];
+                        let snaps = gpui_kit::base::test_support::snapshots(window);
+                        for s in snaps.iter().filter(|s| s.path().contains(&scope_id)) {
+                            if x_strips.iter().any(|x| {
+                                s.path().contains(&gpui_kit::ElementId::from(*x))
+                            }) {
+                                continue;
+                            }
+                            let b = s.bounds();
+                            assert!(
+                                b.origin.x >= px(-1.) && b.right() <= win_w + px(1.),
+                                "{page:?} {w}x{h} {nav}: element past horizontal edge: {b:?} {:?}",
+                                s.path()
+                            );
+                        }
+                        // Closures take the window per call (transient
+                        // reborrows): holding `&mut Window` across calls
+                        // would collide with the wheel dispatch below.
+                        let marker_y = |window: &mut Window| {
+                            window
+                                .within(scroll_id)
+                                .find("page-bottom")
+                                .bounds()
+                                .origin
+                                .y
+                        };
+                        let wheel = |window: &mut Window, cx: &mut App, dy: f32| {
+                            // GPUI hit-tests wheel events at the STORED mouse
+                            // position (not the event position): move there
+                            // first or no scrollable accepts the event. Aim
+                            // inside the page: x=100 is the sidebar menu in
+                            // sidebar mode.
+                            let at = point(
+                                px(if nav == "sidebar" { w - 50. } else { 100. }),
+                                px(h / 2.),
+                            );
+                            window.dispatch_event(
+                                MouseMoveEvent {
+                                    position: at,
+                                    pressed_button: None,
+                                    modifiers: Default::default(),
+                                }
+                                .to_platform_input(),
+                                cx,
+                            );
+                            window.dispatch_event(
+                                ScrollWheelEvent {
+                                    position: at,
+                                    delta: ScrollDelta::Pixels(point(px(0.), px(dy))),
+                                    ..Default::default()
+                                }
+                                .to_platform_input(),
+                                cx,
+                            );
+                            window.render_frame(cx);
+                        };
+                        let bottom0 = marker_y(window);
+                        if bottom0 > win_h {
+                            // Content overflows: wheel must move it.
+                            wheel(window, cx, -300.);
+                            let bottom1 = marker_y(window);
+                            assert!(
+                                bottom1 < bottom0,
+                                "{page:?} {w}x{h} {nav}: wheel did not move content ({bottom0:?} -> {bottom1:?})"
+                            );
+                            // Repeat to the end: the bottom must become reachable.
+                            for _ in 0..30 {
+                                let b = window
+                                    .within(scroll_id)
+                                    .find("page-bottom")
+                                    .bounds();
+                                if b.bottom() <= win_h + px(1.) {
+                                    break;
+                                }
+                                wheel(window, cx, -600.);
+                            }
+                            let end =
+                                window.within(scroll_id).find("page-bottom").bounds();
+                            assert!(
+                                end.bottom() <= win_h + px(1.),
+                                "{page:?} {w}x{h} {nav}: bottom unreachable after full scroll (ends at {end:?}, window {win_h:?})"
+                            );
+                        }
+                        // Record device strip: OS-given names overflow by
+                        // design — prove the strip holds scrollable overflow
+                        // (content wider than the viewport) instead of
+                        // clipping. The Horizontal-axis primitive is covered
+                        // by the kit's own suite; what matters here is that
+                        // the strip, not the page, owns the excess width.
+                        if page == Page::Record {
+                            let strip_id = gpui_kit::ElementId::from("rec-devices-x");
+                            let mut right = px(0.);
+                            let mut count = 0u32;
+                            for s in snaps.iter().filter(|s| s.path().contains(&strip_id)) {
+                                count += 1;
+                                if s.bounds().right() > right {
+                                    right = s.bounds().right();
+                                }
+                            }
+                            assert!(count > 0, "record device strip rendered no buttons");
+                            // Overflow only exists on narrow windows (at
+                            // 800px+ the buttons fit); assert it exactly
+                            // where the strip must earn its keep.
+                            if w < 400. {
+                                assert!(
+                                    right > win_w,
+                                    "{page:?} {w}x{h} {nav}: device strip has no horizontal overflow to scroll ({right:?} <= {win_w:?})"
+                                );
+                            }
+                        }
+                    })
+                    .unwrap();
+                });
+            }
+        }
+    }
+
+    /// Sidebar preference falls back to tabs on narrow windows (the
+    /// fixed 200px menu would leave no body): tabs render below
+    /// SIDEBAR_MIN_WIDTH with the page intact, sidebar above it.
+    #[gpui_kit::test]
+    fn sidebar_falls_back_to_tabs_on_narrow_windows(cx: &mut TestAppContext) {
+        use gpui_kit::component::Root;
+        use gpui_kit::test::TestWindowExt;
+        use gpui_kit::{size, AnyWindowHandle};
+
+        let _scroll = SCROLL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _plock = crate::store::tests::PREFS_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _mlock = crate::store::tests::MANIFEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _models = ModelsDirGuard::take("scroll-nav");
+
+        cx.update(gpui_kit::init);
+        cx.update(|cx| crate::theme::apply_theme("dark", false, cx));
+
+        for (w, h, want_sidebar) in [(200., 200., false), (800., 600., true)] {
+            let handle = cx.open_window(size(px(w), px(h)), |window, cx| {
+                let store = cx.new(|_| Store::new());
+                store.update(cx, |s, _| {
+                    s.wizard_open = false;
+                    // Direct field write (not set_nav_mode): the setter
+                    // persists prefs to disk — racy under parallel tests.
+                    s.nav_mode = "sidebar".to_string();
+                    s.goto_page(Page::Input);
+                });
+                let input = cx.new(|_| InputView::assemble(store.clone()));
+                let record = cx.new(|cx| RecordView::assemble(window, cx, store.clone()));
+                let output = OutputView::new(window, cx, store.clone());
+                let models = ModelsView::new(cx, store.clone());
+                let settings = SettingsView::new(window, cx, store.clone());
+                let wizard = WizardView::new(cx, store.clone());
+                let view = cx.new(|_| {
+                    RootView::assemble(
+                        store.clone(),
+                        input,
+                        record,
+                        output,
+                        models,
+                        settings,
+                        wizard,
+                    )
+                });
+                Root::new(view, window, cx)
+            });
+            let any: AnyWindowHandle = handle.into();
+            cx.update(|cx| {
+                cx.update_window(any, |_, window, cx| {
+                    window.render_frame(cx);
+                    // Tabs/sidebar presence via path containment (neither
+                    // container id is itself observed — only descendants
+                    // register — so `find` can't address them directly).
+                    let nav = gpui_kit::ElementId::from("nav");
+                    let side = gpui_kit::ElementId::from("nav-side");
+                    let has = |id: &gpui_kit::ElementId| {
+                        gpui_kit::base::test_support::snapshots(window)
+                            .iter()
+                            .any(|s| s.path().contains(id))
+                    };
+                    if want_sidebar {
+                        assert!(has(&side), "{w}x{h}: sidebar preference lost");
+                        assert!(!has(&nav), "{w}x{h}: sidebar showing, tabs must not render");
+                    } else {
+                        assert!(has(&nav), "{w}x{h}: narrow window must fall back to tabs");
+                        assert!(
+                            !has(&side),
+                            "{w}x{h}: narrow window must not render the fixed menu"
+                        );
+                        // The page body renders under the tab bar (the
+                        // input scroller subtree resolves with buttons).
+                        window.within("input-scroll");
+                    }
+                })
+                .unwrap();
+            });
+        }
+    }
+
+    /// Wizard owns its scroll box outside the page slot: same bounded +
+    /// wheel-moves-content contract at small windows.
+    #[gpui_kit::test]
+    fn wizard_scrolls_vertically_at_small_windows(cx: &mut TestAppContext) {
+        use gpui_kit::component::Root;
+        use gpui_kit::test::TestWindowExt;
+        use gpui_kit::{point, size, AnyWindowHandle, InputEvent, MouseMoveEvent, ScrollDelta, ScrollWheelEvent};
+
+        // Shared scroll lock (see pages test) + store suite locks, with
+        // the same poison-recovery (one failing test must not fail rest).
+        let _scroll = SCROLL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _plock = crate::store::tests::PREFS_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _mlock = crate::store::tests::MANIFEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        // Deterministic models dir (ambient downloads only add rows).
+        let _models = ModelsDirGuard::take("scroll-wz");
+
+        cx.update(gpui_kit::init);
+        cx.update(|cx| crate::theme::apply_theme("dark", false, cx));
+
+        for (w, h) in [(200., 200.), (800., 600.)] {
+            let handle = cx.open_window(size(px(w), px(h)), |window, cx| {
+                let store = cx.new(|_| Store::new());
+                store.update(cx, |s, _| {
+                    s.wizard_open = true;
+                });
+                let input = cx.new(|_| InputView::assemble(store.clone()));
+                let record = cx.new(|cx| RecordView::assemble(window, cx, store.clone()));
+                let output = OutputView::new(window, cx, store.clone());
+                let models = ModelsView::new(cx, store.clone());
+                let settings = SettingsView::new(window, cx, store.clone());
+                let wizard = WizardView::new(cx, store.clone());
+                let view = cx.new(|_| {
+                    RootView::assemble(
+                        store.clone(),
+                        input,
+                        record,
+                        output,
+                        models,
+                        settings,
+                        wizard,
+                    )
+                });
+                Root::new(view, window, cx)
+            });
+            let any: AnyWindowHandle = handle.into();
+            cx.update(|cx| {
+                cx.update_window(any, |_, window, cx| {
+                    window.render_frame(cx);
+                    let win_h = px(h);
+                    let win_w = px(w);
+                    // Horizontal containment, page subtree only (nav chrome
+                    // excluded — same rationale as the pages test).
+                    let scope_id = gpui_kit::ElementId::from("wizard-scroll");
+                    for s in gpui_kit::base::test_support::snapshots(window)
+                        .iter()
+                        .filter(|s| s.path().contains(&scope_id))
+                    {
+                        let b = s.bounds();
+                        assert!(
+                            b.origin.x >= px(-1.) && b.right() <= win_w + px(1.),
+                            "wizard {w}x{h}: element past horizontal edge: {b:?} {:?}",
+                            s.path()
+                        );
+                    }
+                    let win_w = px(w);
+                    // Horizontal containment: every painted element must sit
+                    // inside the viewport width (rows wrap + floors fit, so
+                    // nothing may be clipped sideways).
+                    for s in gpui_kit::base::test_support::snapshots(window).iter() {
+                        let b = s.bounds();
+                        assert!(
+                            b.origin.x >= px(-1.) && b.right() <= win_w + px(1.),
+                            "wizard {w}x{h}: element past horizontal edge: {b:?} {:?}",
+                            s.path()
+                        );
+                    }
+                    let marker_y = |window: &mut Window| {
+                        window
+                            .within("wizard-scroll")
+                            .find("page-bottom")
+                            .bounds()
+                            .origin
+                            .y
+                    };
+                    let bottom0 = marker_y(window);
+                    if bottom0 > win_h {
+                        window.dispatch_event(
+                            MouseMoveEvent {
+                                position: point(px(100.), px(100.)),
+                                pressed_button: None,
+                                modifiers: Default::default(),
+                            }
+                            .to_platform_input(),
+                            cx,
+                        );
+                        window.dispatch_event(
+                            ScrollWheelEvent {
+                                position: point(px(100.), px(100.)),
+                                delta: ScrollDelta::Pixels(point(px(0.), px(-300.))),
+                                ..Default::default()
+                            }
+                            .to_platform_input(),
+                            cx,
+                        );
+                        window.render_frame(cx);
+                        let bottom1 = marker_y(window);
+                        assert!(
+                        bottom1 < bottom0,
+                        "wizard {w}x{h}: wheel did not move content ({bottom0:?} -> {bottom1:?})"
+                    );
+                    }
+                })
+                .unwrap();
+            });
         }
     }
 }

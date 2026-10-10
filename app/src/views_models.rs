@@ -102,7 +102,7 @@ impl ModelsView {
         let id_c = id.to_string();
         let mut card = h_flex()
             .gap_2()
-            .flex_wrap()
+            .flex_wrap().min_w(px(0.))
             .p_1()
             .bg(rgba(theme::surface(theme, hc)))
             .border_1()
@@ -169,7 +169,7 @@ impl ModelsView {
     fn tier_selector(current: &str, store: &Entity<Store>) -> impl IntoElement {
         let mut row = h_flex()
             .gap_2()
-            .flex_wrap()
+            .flex_wrap().min_w(px(0.))
             .child(div().child("Tier:").font_weight(FontWeight::BOLD));
         for (id, label) in TIERS {
             let mut b = Button::new(format!("tier-{id}"))
@@ -340,7 +340,7 @@ impl ModelsView {
 
         let mut row = h_flex()
             .gap_2()
-            .flex_wrap()
+            .flex_wrap().min_w(px(0.))
             .p_1()
             .bg(rgba(theme::surface(theme, hc)))
             .border_1()
@@ -380,7 +380,7 @@ impl ModelsView {
                 row = row
                     .child(
                         Button::new(format!("set-vlm-{id_v}"))
-                            .label("Set as Vision (VLM)")
+                            .label("Set VLM")
                             .font_weight(FontWeight::SEMIBOLD)
                             .on_click(move |_, _, cx| {
                                 let id = id_v.clone();
@@ -406,7 +406,7 @@ impl ModelsView {
             row = row
                 .child(
                     Button::new(format!("set-llm-{id_l}"))
-                        .label("Set as Summarizing (LLM)")
+                        .label("Set LLM")
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let id = id_l.clone();
@@ -419,7 +419,7 @@ impl ModelsView {
                 )
                 .child(
                     Button::new(format!("set-stt-{id_s}"))
-                        .label("Set as Transcribing (STT)")
+                        .label("Set STT")
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let id = id_s.clone();
@@ -451,7 +451,7 @@ impl ModelsView {
                 let id_t = id.clone();
                 row = row.child(
                     Button::new(format!("set-stt-{id_t}"))
-                        .label("Set as Transcribing (STT)")
+                        .label("Set STT")
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let id = id_t.clone();
@@ -467,7 +467,7 @@ impl ModelsView {
                 let id_l = id.clone();
                 row = row.child(
                     Button::new(format!("set-llm-{id_l}"))
-                        .label("Set as Summarizing (LLM)")
+                        .label("Set LLM")
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let id = id_l.clone();
@@ -483,7 +483,7 @@ impl ModelsView {
                 let id_v = id.clone();
                 row = row.child(
                     Button::new(format!("set-vlm-{id_v}"))
-                        .label("Set as Vision (VLM)")
+                        .label("Set VLM")
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let id = id_v.clone();
@@ -623,6 +623,8 @@ impl Render for ModelsView {
             .child(
                 h_flex()
                     .gap_2()
+                    .flex_wrap()
+                    .min_w(px(0.))
                     .child(theme::label("Models folder", &theme_id, hc))
                     .child(theme::value(format!("{dir} (change in Settings → Storage)"), &theme_id, hc)),
             )
@@ -639,7 +641,7 @@ impl Render for ModelsView {
             )
             .child(
                 Button::new("ollama-scan")
-                    .label("Scan Ollama library")
+                    .label("Scan Ollama")
                     .font_weight(FontWeight::SEMIBOLD)
                     .on_click(move |_, _, cx| {
                         store_scan.update(cx, |s, cx| {
@@ -654,12 +656,12 @@ impl Render for ModelsView {
             .child(
                 h_flex()
                     .gap_4()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(
                         v_flex()
                             .gap_1()
                             .flex_1()
-                            .min_w(px(220.))
+                            .min_w(px(160.))
                             .child(div().child("Speech — transcribe (STT)").font_weight(FontWeight::BOLD))
                             .children(rows_stt),
                     )
@@ -667,7 +669,7 @@ impl Render for ModelsView {
                         v_flex()
                             .gap_1()
                             .flex_1()
-                            .min_w(px(220.))
+                            .min_w(px(160.))
                             .child(div().child("Text — summarize (LLM)").font_weight(FontWeight::BOLD))
                             .children(rows_llm),
                     )
@@ -675,18 +677,22 @@ impl Render for ModelsView {
                         v_flex()
                             .gap_1()
                             .flex_1()
-                            .min_w(px(220.))
+                            .min_w(px(160.))
                             .child(div().child("Vision — film frames (VLM)").font_weight(FontWeight::BOLD))
                             .children(rows_vlm),
                     ),
-            );
+            )
+            // Trailing scroll-test anchor (1px, see views::page_bottom_marker).
+            .child(crate::views::page_bottom_marker());
         // Page-level scroll (matches Settings/Input): tier panel + columns +
         // Ollama list scroll inside the bounded root slot on small windows.
-        // Both axes: narrow windows scroll sideways instead of clipping.
+        // Vertical-only (kit Both-axis areas never scroll vertically);
+        // columns wrap + shrink to fit, so no horizontal scroller is needed.
         div()
             .flex_1()
-            .h_full()
-            .overflow_scrollbar()
+            .min_h(px(0.))
+            .min_w(px(0.))
+            .overflow_y_scrollbar()
             .id("models-scroll")
             .child(body)
             .into_any_element()
@@ -716,7 +722,7 @@ fn scan_section(
             let name_v = name.clone();
             h_flex()
                 .gap_2()
-                .flex_wrap()
+                .flex_wrap().min_w(px(0.))
                 .child(
                     div()
                         .flex_1()
@@ -726,7 +732,7 @@ fn scan_section(
                 )
                 .child(
                     Button::new(format!("set-llm-{name_l}"))
-                        .label("Set as Summarizing (LLM)")
+                        .label("Set LLM")
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let name = name_l.clone();
@@ -749,7 +755,7 @@ fn scan_section(
                 )
                 .child(
                     Button::new(format!("set-stt-{name_s}"))
-                        .label("Set as Transcribing (STT)")
+                        .label("Set STT")
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let name = name_s.clone();
@@ -772,7 +778,7 @@ fn scan_section(
                 )
                 .child(
                     Button::new(format!("set-vlm-{name_v}"))
-                        .label("Set as Vision (VLM)")
+                        .label("Set VLM")
                         .font_weight(FontWeight::SEMIBOLD)
                         .on_click(move |_, _, cx| {
                             let name = name_v.clone();

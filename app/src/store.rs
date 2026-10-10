@@ -1624,6 +1624,25 @@ impl Store {
             Event::UpdateCheck { message } => {
                 self.status = message;
             }
+            Event::UpdateInstalled { path } => {
+                // Verified bytes on disk. Launch FIRST (detached, elevated
+                // when needed) so a launch failure is a clean error below —
+                // only then flush state and exit for the installer, which
+                // cannot replace our running exe.
+                let path = std::path::PathBuf::from(&path);
+                let (program, args) = pv_backend::update::install_command(&path);
+                match pv_backend::update::launch_elevated(&program, &args) {
+                    Ok(()) => {
+                        self.status =
+                            "Update verified — installing, the app will close…".to_string();
+                        self.shutdown_prepare();
+                        std::process::exit(0);
+                    }
+                    Err(e) => {
+                        self.push_error("Settings", format!("Update install failed: {e}"), String::new());
+                    }
+                }
+            }
             Event::LinkVerified { id, ok, message } => {
                 // The worker already updated the manifest (verified flag or
                 // dropped record with cleared slots) — mirror it locally.
@@ -2256,6 +2275,82 @@ impl Store {
             .is_err()
         {
             return Err("Could not start update check.".to_string());
+        }
+        Ok(rx)
+    }
+
+    /// One-click update install (Settings → Diagnostics). Worker thread:
+    /// check feed → download installer → verify SHA-256 → report
+    /// `Event::UpdateInstalled` (the pump launches it elevated and exits)
+    /// or `Event::UpdateCheck` with the failure. User-initiated only —
+    /// no background polling, ever.
+    pub fn begin_update_install(&mut self) -> Result<Receiver<Event>, String> {
+        let (tx, rx): (Sender<Event>, Receiver<Event>) = std::sync::mpsc::channel();
+        self.status = "Checking for updates…".to_string();
+        if std::thread::Builder::new()
+            .name("pv-update-install".to_string())
+            .stack_size(8 << 20)
+            .spawn(move || {
+                let send_status = |m: String| {
+                    let _ = tx.send(Event::UpdateCheck { message: m });
+                };
+                let asset = match pv_backend::update::fetch_update() {
+                    Ok(None) => {
+                        send_status("Up to date.".to_string());
+                        return;
+                    }
+                    Ok(Some(a)) => a,
+                    Err(e) => {
+                        send_status(e);
+                        return;
+                    }
+                };
+                let Some(sums_url) = asset.sums_url.clone() else {
+                    send_status(
+                        "Release has no SHA256SUMS — refusing to install unverified bytes."
+                            .to_string(),
+                    );
+                    return;
+                };
+                send_status(format!("Downloading {}…", asset.name));
+                let data =
+                    match pv_backend::update::download_bytes(&asset.url, pv_backend::update::MAX_INSTALLER_BYTES) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            send_status(e);
+                            return;
+                        }
+                    };
+                send_status(format!(
+                    "Downloaded {:.1} MB — verifying…",
+                    data.len() as f64 / 1048576.0
+                ));
+                let sums = match pv_backend::update::fetch_text(&sums_url) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        send_status(e);
+                        return;
+                    }
+                };
+                if let Err(e) =
+                    pv_backend::update::verify_against_sums(&data, &sums, &asset.name)
+                {
+                    send_status(e);
+                    return;
+                }
+                let dest = pv_backend::update::staging_path(&asset.name);
+                if let Err(e) = std::fs::write(&dest, &data) {
+                    send_status(format!("Could not stage installer: {e}"));
+                    return;
+                }
+                send_status("Update verified — installing…".to_string());
+                let _ = tx.send(Event::UpdateInstalled {
+                    path: dest.to_string_lossy().into_owned(),
+                });
+            })
+            .is_err()
+        {
+            return Err("Could not start update install.".to_string());
         }
         Ok(rx)
     }
@@ -4356,7 +4451,7 @@ fn sidecar_int(text: &str, key: &str) -> Option<i64> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -4405,7 +4500,7 @@ mod tests {
 
     #[test]
     fn staged_queue_survives_restart_and_drops_missing() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = hermetic_prefs(r#"{"dark_mode":true}"#);
         let dir = std::env::temp_dir().join(format!("pv-staged-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -4436,35 +4531,51 @@ mod tests {
     /// nested message loop while open, and a UI-thread dialog lets
     /// background timers re-enter the app borrow (`RefCell already
     /// borrowed`, see crash.log). The headless executor runs worker tasks
-    /// on the test thread, so thread ids can't prove the hop here —
-    /// instead the ordering log proves the dialog runs ASYNCHRONOUSLY
-    /// (after `spawn_file_pick` returns, never inline inside the UI
-    /// borrow). In production the hop lands on a real worker pool (the
-    /// `Send + 'static` bound on `pick` is compile-enforced).
+    /// on threads, so thread ids can't prove the hop here — instead a
+    /// gate channel makes the ordering DETERMINISTIC (no scheduling race
+    /// under load): the stub blocks until the test closes the gate after
+    /// `spawn_file_pick` returns, so "spawn-returned before pick-ran" holds
+    /// by construction. In production the hop lands on a real worker pool
+    /// (the `Send + 'static` bound on `pick` is compile-enforced). If the
+    /// call were ever inlined, the stub would stall the 30s timeout inside
+    /// the call and the mid-assert below would fail.
     #[test]
     fn file_pick_runs_async_never_inline_and_stages() {
         use gpui_kit::TestApp;
         use std::sync::{Arc, Mutex};
-        let _plock = PREFS_LOCK.lock().unwrap();
+        use std::time::Duration;
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = hermetic_prefs(r#"{}"#);
         let mut t = TestApp::new();
         let store = t.new_entity(|_| Store::new());
         let log = Arc::new(Mutex::new(Vec::new()));
         let pick_log = log.clone();
         let ret_log = log.clone();
+        let (gate_tx, gate_rx) = std::sync::mpsc::channel::<()>();
         t.update(|cx| {
             crate::views_input::spawn_file_pick(
                 store.clone(),
                 move || {
+                    // Block until the test proves the call returned. The
+                    // timeout only fires in the inlined (buggy) world, where
+                    // it still fails below instead of hanging CI forever.
+                    let _ = gate_rx.recv_timeout(Duration::from_secs(30));
                     pick_log.lock().unwrap().push("pick-ran");
                     Some(vec![PathBuf::from("picked-dialog.wav")])
                 },
                 cx,
             );
-            // Still inside the UI borrow: an inlined dialog would already
-            // have run (and, in production, panicked the borrow).
+            // Still inside the UI borrow: the gated stub cannot have run
+            // yet, so this order is structural, not scheduling luck.
             ret_log.lock().unwrap().push("spawn-returned");
+            assert_eq!(
+                *ret_log.lock().unwrap(),
+                vec!["spawn-returned"],
+                "spawn_file_pick must return before the dialog runs"
+            );
+            drop(gate_tx);
         });
+        t.run_until_parked();
         assert_eq!(
             *log.lock().unwrap(),
             vec!["spawn-returned", "pick-ran"],
@@ -4478,28 +4589,32 @@ mod tests {
 
     /// Same async-not-inline guarantee for folder pickers (Settings browses
     /// share the crash class): the stub dialog runs after return, the stub
-    /// apply lands back on the UI thread.
+    /// apply lands back on the UI thread. Gated like the file-picker test
+    /// above — deterministic under load, never scheduling luck.
     #[test]
     fn folder_pick_runs_async_never_inline_and_applies() {
         use gpui_kit::TestApp;
         use std::sync::{Arc, Mutex};
+        use std::time::Duration;
         fn apply(store: gpui_kit::Entity<Store>, p: String, cx: &mut gpui_kit::App) {
             store.update(cx, |s, cx| {
                 s.status = format!("picked {p}");
                 cx.notify();
             });
         }
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = hermetic_prefs(r#"{}"#);
         let mut t = TestApp::new();
         let store = t.new_entity(|_| Store::new());
         let log = Arc::new(Mutex::new(Vec::new()));
         let pick_log = log.clone();
         let ret_log = log.clone();
+        let (gate_tx, gate_rx) = std::sync::mpsc::channel::<()>();
         t.update(|cx| {
             crate::views_settings::spawn_folder_pick_with(
                 store.clone(),
                 move || {
+                    let _ = gate_rx.recv_timeout(Duration::from_secs(30));
                     pick_log.lock().unwrap().push("pick-ran");
                     Some(PathBuf::from("picked-dir"))
                 },
@@ -4507,7 +4622,14 @@ mod tests {
                 cx,
             );
             ret_log.lock().unwrap().push("spawn-returned");
+            assert_eq!(
+                *ret_log.lock().unwrap(),
+                vec!["spawn-returned"],
+                "spawn_folder_pick must return before the dialog runs"
+            );
+            drop(gate_tx);
         });
+        t.run_until_parked();
         assert_eq!(
             *log.lock().unwrap(),
             vec!["spawn-returned", "pick-ran"],
@@ -4557,8 +4679,8 @@ mod tests {
 
     #[test]
     fn validate_stt_error_switches_cpu_and_rolls_back() {
-        let _env = ENV_LOCK.lock().unwrap();
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let mut s = validating_store();
         // Hermetic mode regardless of the user's live setting.
@@ -4583,7 +4705,7 @@ mod tests {
         // Test binaries have no models configured: seed an empty active
         // pair so continuation fails deterministically at resolution
         // (never hangs, never wedges). Serialized + restored like above.
-        let _lock = MANIFEST_LOCK.lock().unwrap();
+        let _lock = MANIFEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _manifest = ManifestGuard::take();
         let path = pv_backend::manifest::manifest_path(&pv_backend::dirs::models_dir());
         std::fs::write(&path, r#"{"files":{},"active_stt":"","active_llm":""}"#).unwrap();
@@ -4669,7 +4791,7 @@ mod tests {
 
     #[test]
     fn delete_converted_toggle_persists() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         std::fs::write(
             pv_backend::prefs::prefs_path(),
@@ -4686,8 +4808,8 @@ mod tests {
 
     #[test]
     fn compute_mode_persists_and_bridges_env() {
-        let _env = ENV_LOCK.lock().unwrap();
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         // Hermetic start regardless of ambient file state.
         std::fs::write(
@@ -4709,7 +4831,7 @@ mod tests {
 
     #[test]
     fn nav_mode_normalizes_and_persists() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         std::fs::write(
             pv_backend::prefs::prefs_path(),
@@ -4751,12 +4873,16 @@ mod tests {
 
     /// Serializes tests that rewrite the live manifest (activation paths).
     /// Without this, parallel tests observe each other's mid-test actives.
-    static MANIFEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// Acquisitions recover from poisoning (`into_inner`): a panicking test
+    /// must never take down the other 60 (hermetic guards restore state on
+    /// unwind, so recovery is safe and failures stay local).
+    pub(crate) static MANIFEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Serializes tests that save prefs (compute toggle, dismiss, etc.).
     /// save_prefs targets the live ui.json; without this, parallel tests
     /// overwrite each other's file mid-assertion (same race as manifests).
-    static PREFS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// Same poison-recovery rule as MANIFEST_LOCK above.
+    pub(crate) static PREFS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Backup/restore guard for the LIVE manifest: tier activation writes
     /// through to disk, so tests that trigger it must leave the user's
@@ -4815,7 +4941,7 @@ mod tests {
     #[test]
     fn completed_tier_becomes_default_when_idle() {
         // Serialized: activation rewrites the live manifest (guarded above).
-        let _lock = MANIFEST_LOCK.lock().unwrap();
+        let _lock = MANIFEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _manifest = ManifestGuard::take();
         let mut s = Store::new();
         seed_lite_pair(&mut s);
@@ -5081,7 +5207,7 @@ mod tests {
 
     #[test]
     fn retention_and_denoise_normalize_and_persist() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         assert_eq!(normalize_retention("delete"), "delete");
         assert_eq!(normalize_retention("archive"), "archive");
@@ -5104,7 +5230,7 @@ mod tests {
     fn attention_and_research_settings() {
         // Live prefs file: serialize + restore like every other prefs test
         // (parallel tests + ambient user state must never leak in).
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Hermetic start regardless of ambient file state (a leaked
         // web_research=true in the live ui.json failed this assert before).
         let _prefs = hermetic_prefs(
@@ -5396,7 +5522,7 @@ mod tests {
 
     #[test]
     fn save_rename_delete_roundtrip() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("srd");
         let id = seed_output(&mut s);
@@ -5419,7 +5545,7 @@ mod tests {
     /// retires too (never a ghost entry).
     #[test]
     fn pipeline_drill_progress_error_retry_done() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("drill");
         s.add_files(vec![PathBuf::from("a.wav")]);
@@ -5483,7 +5609,7 @@ mod tests {
 
     #[test]
     fn dismiss_hides_row_but_keeps_file() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("dismiss");
         let id = seed_output(&mut s);
@@ -5501,7 +5627,7 @@ mod tests {
 
     #[test]
     fn output_ops_follow_file_dir_not_current_dir() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir_a) = output_store("dira");
         let id = seed_output(&mut s);
@@ -5523,7 +5649,7 @@ mod tests {
 
     #[test]
     fn delete_missing_file_still_drops_row() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("ghost");
         let id = seed_output(&mut s);
@@ -5535,7 +5661,7 @@ mod tests {
 
     #[test]
     fn download_tier_queues_missing_pair_offline() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("tier");
         // Embedded catalog resolves; spawn succeeds offline (failure, if any,
@@ -5569,7 +5695,7 @@ mod tests {
 
     #[test]
     fn merge_select_toggle_and_group_dismiss_persists() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("mg");
         let id = seed_output(&mut s);
@@ -5596,7 +5722,7 @@ mod tests {
 
     #[test]
     fn merge_thresholds_clamp_and_keep_order() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("th");
         s.set_merge_thresholds(0.9, 0.1); // inverted: hi rises to lo
@@ -5610,9 +5736,9 @@ mod tests {
 
     #[test]
     fn review_draft_roundtrip_badges_and_submit_clears() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
-        let _rlock = REVIEWS_LOCK.lock().unwrap();
+        let _rlock = REVIEWS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _rev = ReviewsGuard::take("rt");
         let (mut s, dir) = output_store("rev");
         let id = seed_output(&mut s);
@@ -5643,9 +5769,9 @@ mod tests {
 
     #[test]
     fn review_revert_restores_snapshot() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
-        let _rlock = REVIEWS_LOCK.lock().unwrap();
+        let _rlock = REVIEWS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _rev = ReviewsGuard::take("rv");
         let (mut s, dir) = output_store("rev2");
         let id = seed_output(&mut s);
@@ -5661,7 +5787,7 @@ mod tests {
 
     #[test]
     fn default_outdir_classes_and_unhide() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("set");
         // Seed while the queue points at the temp dir (never the live home).
@@ -5669,9 +5795,19 @@ mod tests {
         let custom =
             std::env::temp_dir().join(format!("pv-out-custom-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&custom);
+        // Compare canonical-vs-canonical: accept_override() resolves
+        // junctions/short (8.3) names, so the raw temp path never equals
+        // the stored one textually on machines where %TEMP% is aliased
+        // (CI runners use RUNNER~1-style short components).
+        let canon = pv_backend::paths::accept_override(
+            custom.to_str().unwrap(),
+            pv_backend::paths::Purpose::Output,
+        )
+        .unwrap()
+        .path;
         s.set_default_outdir(custom.to_str().unwrap()).unwrap();
-        assert_eq!(s.run_outdir().unwrap(), custom);
-        assert_eq!(s.queue.out_dir(), custom.as_path());
+        assert_eq!(s.run_outdir().unwrap(), canon);
+        assert_eq!(s.queue.out_dir(), canon.as_path());
         s.reset_default_outdir();
         assert!(s.run_outdir().is_none());
         assert!(s.set_default_outdir("").is_err());
@@ -5690,7 +5826,7 @@ mod tests {
 
     #[test]
     fn summary_tier_sets_chunk_ratio_and_persists() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("tier2");
         assert_eq!(Store::tier_chunk_tokens("recap"), 1000);
@@ -5732,7 +5868,7 @@ mod tests {
 
     #[test]
     fn clean_caches_refuses_while_processing() {
-        let _plock = PREFS_LOCK.lock().unwrap();
+        let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _prefs = PrefsGuard::take();
         let (mut s, dir) = output_store("cc");
         s.processing.push(ProcFile {

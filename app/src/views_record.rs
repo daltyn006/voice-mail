@@ -98,11 +98,22 @@ fn waveform(peaks: &[f32], theme: &str, hc: bool, light_base: bool, clips: u64) 
         .p_2()
         .bg(rgba(theme::surface(theme, hc)))
         .child(
-            h_flex()
-                .gap_1()
-                .items_end()
-                .h(px(68.))
-                .children(bars)
+            // Bars are fixed 4px × up to 96 (≈480px): wider than small
+            // windows, and wrapping would destroy the visualization, so
+            // they get their own horizontal scroller (block fill width —
+            // always viewport-definite — with the tall content inside).
+            div()
+                .w_full()
+                .min_w(px(0.))
+                .overflow_x_scrollbar()
+                .child(
+                    h_flex()
+                        .gap_1()
+                        .items_end()
+                        .h(px(68.))
+                        .children(bars)
+                        .into_any_element(),
+                )
                 .into_any_element(),
         )
         .child(if clips > 0 {
@@ -146,11 +157,12 @@ impl Render for RecordView {
             .child(waveform(&peaks, &theme_id, hc, light_base, clips).into_any_element());
 
         // Device picker: Default + detected inputs (cap 8 buttons).
+        // Device names are OS-given and long ("Line In (Realtek USB
+        // Audio)"): they must never be truncated (the name identifies the
+        // hardware), so this row gets its own horizontal scroller instead
+        // of wrapping — same pattern as the waveform lane below.
         {
-            let mut row = h_flex()
-                .gap_2()
-                .flex_wrap()
-                .child(div().child("Input:").font_weight(FontWeight::BOLD));
+            let mut row = h_flex().gap_2();
             let mk = |id: String, label: &str, active: bool, dev: Option<String>| {
                 let mut b = Button::new(id).label(label).font_weight(FontWeight::SEMIBOLD);
                 if active {
@@ -188,14 +200,24 @@ impl Render for RecordView {
                     Some(d.clone()),
                 ));
             }
-            body = body.child(row.into_any_element());
+            body = body
+                .child(div().child("Input:").font_weight(FontWeight::BOLD))
+                .child(
+                    div()
+                        .w_full()
+                        .min_w(px(0.))
+                        .overflow_x_scrollbar()
+                        .id("rec-devices-x")
+                        .child(row.into_any_element())
+                        .into_any_element(),
+                );
         }
 
         // Rate picker: Native + driver-reported rates.
         {
             let mut row = h_flex()
                 .gap_2()
-                .flex_wrap()
+                .flex_wrap().min_w(px(0.))
                 .child(div().child("Rate:").font_weight(FontWeight::BOLD));
             let mk = |id: String, label: String, active: bool, rate: Option<u32>| {
                 let mut b = Button::new(id).label(label).font_weight(FontWeight::SEMIBOLD);
@@ -247,7 +269,7 @@ impl Render for RecordView {
             body = body.child(
                 h_flex()
                     .gap_2()
-                    .flex_wrap()
+                    .flex_wrap().min_w(px(0.))
                     .child(
                         Button::new("rec-record")
                             .label(if rec_status == RecStatus::Paused {
@@ -358,12 +380,15 @@ impl Render for RecordView {
             .child(
                 theme::hint("Takes land in Recordings; Send to queue stages them on Input. Leaving this page auto-sends an unsent take.", &theme_id, hc),
             )
-            .child(theme::value(status, &theme_id, hc));
+            .child(theme::value(status, &theme_id, hc))
+            // Trailing scroll-test anchor (1px, see views::page_bottom_marker).
+            .child(crate::views::page_bottom_marker());
 
         div()
             .flex_1()
-            .h_full()
-            .overflow_scrollbar()
+            .min_h(px(0.))
+            .min_w(px(0.))
+            .overflow_y_scrollbar()
             .id("record-scroll")
             .child(body)
             .into_any_element()

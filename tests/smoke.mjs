@@ -231,6 +231,25 @@ for (const f of ['views_input.rs','views_record.rs','views_output.rs','views_mod
 ok(src('app/src/theme.rs').includes('gruvbox_dark') && src('app/src/theme.rs').includes('coffee_light'), 'gruvbox + coffee appearances exist');
 ok(src('app/src/theme.rs').includes('high_contrast') && src('pv-backend/src/prefs.rs').includes('high_contrast'), 'high-contrast overlay persisted');
 ok(src('app/src/theme.rs').includes('ScrollbarMode::Always'), 'scrollbars stay visible on overflow');
+// NSIS aborts the whole package on a non-ICO installer icon (assets/
+// voice.ico was a renamed PNG). Guard the magic bytes, not just presence.
+ok(!existsSync('assets/voice.ico'), 'stale voice.ico removed (was a PNG, broke makensis)');
+{
+  const m = src('app/Cargo.toml').match(/installer-icon\s*=\s*"([^"]+)"/);
+  ok(!!m, 'NSIS installer-icon configured');
+  let magic = false;
+  try {
+    const buf = readFileSync('app/' + m[1].replace(/^\.\//, ''));
+    magic = buf.length > 4 && buf[0] === 0 && buf[1] === 0 && buf[2] === 1 && buf[3] === 0;
+  } catch { magic = false; }
+  ok(magic, 'NSIS installer-icon is a real ICO (00 00 01 00 magic)');
+}
+// Both-axis Scrollables (row-direction area) never engage vertical
+// scrolling in this kit version — pages must use single-axis scrollers
+// (vertical page boxes; horizontal only for fixed-content strips).
+for (const f of ['views_input.rs','views_models.rs','views_output.rs','views_record.rs','views_settings.rs','views_wizard.rs']) {
+  ok(!src(`app/src/${f}`).includes('.overflow_scrollbar('), `${f}: no Both-axis scroller (use overflow_y/x_scrollbar)`);
+}
 ok(src('app/src/views.rs').includes('flex_shrink_0'), 'sidebar keeps its natural width (no overhang)');
 ok(existsSync('LICENSE') && src('LICENSE').includes('MIT License'), 'MIT LICENSE present');
 ok(src('README.md').includes('AI assistance disclosure'), 'README discloses AI assistance');
@@ -252,11 +271,12 @@ ok(src('app/src/views_settings.rs').includes('theme'), 'theme toggle lives in Se
 ok(src('app/src/views.rs').includes('TabBar') && src('app/src/views.rs').includes('Sidebar'), 'both nav chromes implemented (tabs + sidebar)');
 ok(src('pv-backend/src/prefs.rs').includes('nav_mode') && src('app/src/views_settings.rs').includes('"nav"'), 'nav preference persisted + choosable');
 ok(!src('app/src/views.rs').includes('nav_button'), 'button-bar nav retired');
+ok(src('app/src/views.rs').includes('SIDEBAR_MIN_WIDTH'), 'sidebar falls back to tabs on narrow windows');
 // --- 5f. Custom model path ---
 ok(src('pv-backend/src/dirs.rs').includes('MODELS_OVERRIDE'), 'models-dir override exists');
 ok(src('app/src/views_settings.rs').includes('models-browse'), 'Browse option in Settings page');
-  ok(src('app/src/views_models.rs').includes('Set as Transcribing'), 'STT toggle button in Models page');
-  ok(src('app/src/views_models.rs').includes('Set as Summarizing'), 'LLM toggle button in Models page');
+  ok(src('app/src/views_models.rs').includes('"Set STT"'), 'STT toggle button in Models page');
+  ok(src('app/src/views_models.rs').includes('"Set LLM"'), 'LLM toggle button in Models page');
   ok(src('app/src/views_models.rs').includes('h_flex'), 'models page uses side-by-side columns');
   ok(src('app/src/views_models.rs').includes('CPU only'), 'compute mode selector in Models page');
   ok(src('app/src/store.rs').includes('compute_mode') && src('pv-backend/src/prefs.rs').includes('compute_mode'), 'compute mode persisted');
@@ -277,7 +297,10 @@ ok(src('app/src/store.rs').includes('spawn_boot_verify') && src('pv-backend/src/
 ok(src('app/src/store.rs').includes('restore_staged') && src('pv-backend/src/prefs.rs').includes('staged'), 'staged queue persists across restarts');
 ok(src('pv-backend/src/update.rs').includes('check_blocking') && src('app/src/views_settings.rs').includes('check-updates'), 'manual update check, user-initiated only');
 ok(src('pv-backend/src/update.rs').includes('pick_installer') && src('pv-backend/src/update.rs').includes('.msi'), 'update check points at the MSI installer asset');
-ok(src('app/Cargo.toml').includes('upgrade-code'), 'MSI carries a stable upgrade-code (major upgrades, never side-by-side)');
+ok(src('pv-backend/src/update.rs').includes('verify_against_sums') && src('pv-backend/src/update.rs').includes('install_command'), 'one-click update verifies hashes and builds the installer command');
+ok(src('app/src/store.rs').includes('begin_update_install') && src('app/src/store.rs').includes('UpdateInstalled'), 'update install pumps through shutdown-then-exit');
+ok(src('app/src/views_settings.rs').includes('install-update'), 'Install update button in Settings Diagnostics');
+ok(!src('app/Cargo.toml').includes('upgrade-code ='), 'no upgrade-code field (cargo-packager 0.11 rejects it; the MSI upgrade code is tool-derived stable from the binary name)');
 ok(src('core/src/audio_ffmpeg.cpp').includes('qarg') && !src('core/src/audio_ffmpeg.cpp').includes('-i \\"'), 'ffmpeg spawn lines are quote-escaped (no raw -i interpolation)');
 ok(src('core/CMakeLists.txt').includes('set(GGML_VULKAN ${_PV_VULKAN} CACHE BOOL "" FORCE)') && src('core/CMakeLists.txt').includes('PV_GPU_VENDOR'), 'Vulkan flags forced from detection (stale -D can never wedge configure)');
 ok(src('core/src/audio_ffmpeg.cpp').includes('RF64') && src('core/src/audio_ffmpeg.cpp').includes('ds64'), 'WAV reader accepts RF64/ds64 with EOF clamp');
@@ -429,9 +452,12 @@ ok(src('app/src/store.rs').includes('clean_caches') && src('app/src/views_settin
 ok(src('app/src/store.rs').includes('strip_prefix("Merged")'), 'merged titles strip existing prefix (no double Merged)');
 ok(src('app/src/store.rs').includes('dismissed_groups'), 'dismissed merge groups persist');
 // --- 7b. Scripts run from any CWD (sentinel walk-up; safe under orchestration) ---
-for (const s of ['build', 'setup-windows', 'fetch-models', 'dev/smoke-test', 'dev/measure-models']) {
+for (const s of ['build', 'setup-windows', 'fetch-models', 'dev/smoke-test', 'dev/measure-models', 'package-release']) {
   ok(src(`scripts/${s}.ps1`).includes('repo root not found above'), `${s}.ps1 is CWD-independent`);
 }
+// install-update.ps1 is standalone (runs on user machines with no checkout).
+ok(src('scripts/install-update.ps1').includes('SHA256SUMS') && src('scripts/install-update.ps1').includes('msiexec'), 'update script verifies hashes then installs the MSI');
+ok(src('scripts/package-release.ps1').includes('SHA256SUMS') && src('scripts/package-release.ps1').includes('Version lockstep'), 'release script gates versions and re-verifies dist hashes');
 ok(!existsSync('scripts/build-all.ps1'), 'legacy build-all.ps1 removed (use build.ps1)');
 ok(!existsSync('scripts/smoke-test.ps1') && !existsSync('scripts/measure-models.ps1'), 'test scripts live in scripts/dev/');
 ok(src('scripts/build.ps1').includes('Dev staging'), 'build stages backend beside dev binaries');
