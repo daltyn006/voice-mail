@@ -473,6 +473,9 @@ mod tests {
         cx.update(gpui_kit::init);
         cx.update(|cx| crate::theme::apply_theme("dark", false, cx));
 
+        // Get device count once (pure query, no store needed)
+        let device_count = pv_backend::record::list_devices().len();
+
         for (page, scroll_id) in pages {
             for (w, h, nav) in cases {
                 let handle = cx.open_window(size(px(w), px(h)), |window, cx| {
@@ -650,13 +653,15 @@ mod tests {
                                 }
                             }
                             assert!(count > 0, "record device strip rendered no buttons");
-                            // Overflow only exists on narrow windows (at
-                            // 800px+ the buttons fit); assert it exactly
-                            // where the strip must earn its keep.
-                            if w < 400. {
+                            // Overflow only exists on narrow windows when there are
+                            // enough devices to exceed viewport width. In CI/headless
+                            // environments list_devices() returns empty, so only
+                            // "Default" button renders (114px) — no overflow expected.
+                            // "Default" + devices; overflow typically needs 3+ items on 200px
+                            if w < 400. && device_count >= 2 {
                                 assert!(
                                     right > win_w,
-                                    "{page:?} {w}x{h} {nav}: device strip has no horizontal overflow to scroll ({right:?} <= {win_w:?})"
+                                    "{page:?} {w}x{h} {nav}: device strip has no horizontal overflow to scroll ({right:?} <= {win_w:?}) with {device_count} devices"
                                 );
                             }
                         }

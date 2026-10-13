@@ -384,6 +384,8 @@ pub struct Store {
     pub web_research: bool,
     /// Attention slider 0–100 (Settings → Documentary). 50 = Balanced.
     pub attention: i32,
+    /// Optional custom prefs file path for hermetic testing.
+    pub(crate) prefs_path: Option<PathBuf>,
     // ---- Error Center ----
     pub errors: Vec<AppError>,
     next_err: u64,
@@ -519,6 +521,7 @@ impl Store {
             denoise_mode: "recommended".to_string(),
             web_research: false,
             attention: 50,
+            prefs_path: None,
             errors: Vec::new(),
             next_err: 1,
             show_errors: false,
@@ -575,11 +578,31 @@ impl Store {
         store
     }
 
+    /// Create a Store with a custom prefs file path (hermetic for testing).
+    /// The custom path is used for all prefs I/O (load, save, restore_staged).
+    #[cfg(test)]
+    pub fn new_with_prefs_path(prefs_path: PathBuf) -> Self {
+        let mut store = Store {
+            prefs_path: Some(prefs_path),
+            ..Self::new()
+        };
+        // Re-load prefs from the custom path (overrides the default load in new())
+        store.apply_prefs(pv_backend::prefs::load_from(store.prefs_path.as_ref().unwrap()));
+        store.restore_staged();
+        store
+    }
+
+    /// Get the effective prefs path (custom or default).
+    fn effective_prefs_path(&self) -> PathBuf {
+        self.prefs_path.clone().unwrap_or_else(pv_backend::prefs::prefs_path)
+    }
+
     /// Re-resolve the persisted staged queue (FIFO order kept). Missing or
     /// unreadable files are dropped with a one-line count note — never an
     /// error dialog. Runs once at boot, after prefs load.
     fn restore_staged(&mut self) {
-        let saved = pv_backend::prefs::load().staged;
+        let path = self.effective_prefs_path();
+        let saved = pv_backend::prefs::load_from(&path).staged;
         if saved.is_empty() {
             return;
         }
@@ -2934,7 +2957,8 @@ impl Store {
                 .take(256)
                 .collect(),
         };
-        if let Err(e) = pv_backend::prefs::save(&prefs) {
+        let path = self.effective_prefs_path();
+        if let Err(e) = pv_backend::prefs::save_to(&path, &prefs) {
             // Non-fatal: the session keeps working, the pref just won't stick.
             let _ = e;
         }
@@ -4501,26 +4525,31 @@ pub(crate) mod tests {
     #[test]
     fn staged_queue_survives_restart_and_drops_missing() {
         let _plock = PREFS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let _prefs = hermetic_prefs(r#"{"dark_mode":true}"#);
         let dir = std::env::temp_dir().join(format!("pv-staged-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let wav = dir.join("lec.wav");
         std::fs::write(&wav, b"RIFF").unwrap();
+
+        // Hermetic prefs file: completely isolated from live prefs and PrefsGuard
+        let prefs_file = dir.join("ui-test.json");
+        let _ = std::fs::remove_file(&prefs_file);
+
         {
-            let mut s = Store::new();
+            let mut s = Store::new_with_prefs_path(prefs_file.clone());
             assert!(s.input.is_empty());
             s.add_files(vec![wav.clone()]);
             assert_eq!(s.input.len(), 1);
         }
-        {
-            let s2 = Store::new();
-            assert_eq!(s2.input.len(), 1);
-            assert_eq!(s2.input[0].path, wav);
-        }
+
+        // New Store with same prefs file should restore staged queue
+        let s2 = Store::new_with_prefs_path(prefs_file.clone());
+        assert_eq!(s2.input.len(), 1);
+        assert_eq!(s2.input[0].path, wav);
+
         std::fs::remove_file(&wav).unwrap();
         {
-            let s3 = Store::new();
+            let s3 = Store::new_with_prefs_path(prefs_file.clone());
             assert!(s3.input.is_empty());
             assert!(s3.status.contains("no longer on disk"));
         }
