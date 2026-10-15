@@ -12,7 +12,7 @@ path = "src/main.rs"
 # UI pins (see PINS.md): depend on the gpui-kit facade ONLY — it re-exports
 # the matching gpui-pre/gpui-component set, so no version can drift apart.
 # Code says `use gpui_kit::...` throughout; direct gpui deps are banned.
-gpui-kit = "=0.6.4"
+gpui-kit = "=0.7.1"
 pv-backend = { path = "../pv-backend" }
 # Native file dialogs (replaces the Tauri dialog plugin).
 rfd = "0.17"
@@ -27,7 +27,7 @@ embed-resource = "=3.0.11"
 # Headless UI tests only (`TestApp`): the facade forwards `test-support` to
 # the matched gpui stack. Still facade-only per PINS.md — never depend on raw
 # gpui crates directly. Test builds only; normal builds are unaffected.
-gpui-kit = { version = "=0.6.4", features = ["test-support"] }
+gpui-kit = { version = "=0.7.1", features = ["test-support"] }
 
 # ---- cargo-packager config (M5): NSIS per-machine exe + per-user MSI ----
 # Paths are relative to this file. NSIS/Wix place `resources` beside the exe,
