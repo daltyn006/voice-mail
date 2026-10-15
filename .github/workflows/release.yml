@@ -63,7 +63,7 @@ jobs:
         shell: pwsh
 
       - name: Cache ffmpeg
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ffmpeg-dlls
           key: ffmpeg-dlls-${{ runner.os }}-${{ hashFiles('scripts/setup-windows.ps1') }}
